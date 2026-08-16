@@ -8,7 +8,7 @@ Three demo online stores showcasing Zam Checkout integration:
 |-------|-------------|------|
 | **Xcite Electronics** | Smartphones, laptops, gaming gear | `/xcite/` |
 | **Kuwait Travel** | Flight and travel package booking | `/travel/` |
-| **Pick** | Light healthy meals delivery | `/pick/` |
+| **Talabat** | Light healthy meals delivery | `/talabat/` |
 
 The landing page (`/`) lets users choose a store and configure shared fallback API settings.
 
