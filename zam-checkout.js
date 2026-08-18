@@ -184,7 +184,7 @@
       '  <button class="zam-close" aria-label="Close">' +
       '    <svg viewBox="0 0 14 14"><line x1="1" y1="1" x2="13" y2="13"/><line x1="13" y1="1" x2="1" y2="13"/></svg>' +
       "  </button>" +
-      '  <iframe class="zam-frame" src="' + paymentURL + '"></iframe>' +
+      '  <iframe class="zam-frame" allow="web-share; clipboard-write" src="' + paymentURL + '"></iframe>' +
       '  <div class="zam-footer">' +
       '    <div class="zam-footer-status"><span class="zam-dot"></span>Waiting for payment</div>' +
       '    <button class="zam-cancel-btn">Cancel</button>' +
