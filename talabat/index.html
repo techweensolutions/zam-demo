@@ -268,7 +268,7 @@
     <!-- Order bar -->
     <div class="order-bar" id="order-bar">
         <div>
-            <div class="order-info">Total: <span class="amount" id="order-total">0.000 KWD</span></div>
+            <div class="order-info">Total: <span class="amount" id="order-total"></span></div>
             <div class="order-items-summary" id="order-summary">0 items</div>
         </div>
         <div class="order-pay-btn-wrap" id="order-pay-btn-wrap"></div>
@@ -280,6 +280,10 @@
     <script src="../zam-pay-button.js"></script>
     <script src="../zam-checkout.js"></script>
     <script>
+        // Demo store locale. A real integration reads currency and decimals from
+        // the checkout session response (`currency`, `locale`); this demo prices
+        // its catalogue up front, so it declares them once here.
+        var ZAM_DEMO = { currency: 'KWD', decimals: 3 };
         // ── Talabat Healthy Meals API Configuration ──
         var STORE_CONFIG = {
             apiKey:     'IS1OSvNvWbhZl77ton-Irh-j5TXA1WbdyTmOj6Ai7Fpau1VHFDFSNVJJMHay0GsG',  // Set your Pick merchant API key here
@@ -319,7 +323,7 @@
                     '<span class="macro">' + m.protein + ' protein</span>' +
                     '</div>' +
                     '<div class="meal-bottom">' +
-                    '<div class="meal-price">' + m.price.toFixed(3) + ' <small>KWD</small></div>' +
+                    '<div class="meal-price">' + m.price.toFixed(ZAM_DEMO.decimals) + ' <small>' + ZAM_DEMO.currency + '</small></div>' +
                     '<button class="add-btn" onclick="addToOrder(' + m.id + ')">+</button>' +
                     '</div></div></div>';
             }).join('');
@@ -356,7 +360,7 @@
             var total = getOrderTotal();
 
             document.getElementById('cart-count').textContent = totalItems;
-            document.getElementById('order-total').textContent = total.toFixed(3) + ' KWD';
+            document.getElementById('order-total').textContent = total.toFixed(ZAM_DEMO.decimals) + ' ' + ZAM_DEMO.currency;
             document.getElementById('order-summary').textContent = totalItems + ' item' + (totalItems !== 1 ? 's' : '');
 
             var bar = document.getElementById('order-bar');
@@ -379,7 +383,7 @@
             ZamPayButton.setLoading(orderPayBtn, true);
 
             ZamCheckout.open({
-                amount: total.toFixed(3),
+                amount: total.toFixed(ZAM_DEMO.decimals),
                 orderRef: orderRef,
                 callbackURL: STORE_CONFIG.callbackURL || undefined,
                 note: 'Talabat: ' + itemNames,

@@ -321,7 +321,7 @@
             <div class="cart-footer">
                 <div class="cart-total">
                     <span>Total</span>
-                    <span id="cart-total">0.000 KWD</span>
+                    <span id="cart-total"></span>
                 </div>
                 <div class="checkout-btn-wrap" id="checkout-btn-wrap"></div>
             </div>
@@ -333,6 +333,10 @@
     <script src="../zam-pay-button.js"></script>
     <script src="../zam-checkout.js"></script>
     <script>
+        // Demo store locale. A real integration reads currency and decimals from
+        // the checkout session response (`currency`, `locale`); this demo prices
+        // its catalogue up front, so it declares them once here.
+        var ZAM_DEMO = { currency: 'KWD', decimals: 3 };
         // ── Xcite Electronics API Configuration ──
         var STORE_CONFIG = {
             apiKey:     'VJUGB7RVSDKB1E77I0tnynvzKZa0ULXZwC21iaHt6kIyuZ9dzmswwHVzsdJ6ZKCp',  // Set your Xcite merchant API key here
@@ -368,7 +372,7 @@
                     '<div class="product-name">' + p.name + '</div>' +
                     '<div class="product-desc">' + p.desc + '</div>' +
                     '<div class="product-bottom">' +
-                    '<div class="product-price">' + p.price.toFixed(3) + ' <small>KWD</small></div>' +
+                    '<div class="product-price">' + p.price.toFixed(ZAM_DEMO.decimals) + ' <small>' + ZAM_DEMO.currency + '</small></div>' +
                     '<button class="buy-btn" onclick="addToCart(' + p.id + ')">Add to Cart</button>' +
                     '</div></div></div>';
             }).join('');
@@ -417,12 +421,12 @@
                     return '<div class="cart-item">' +
                         '<span class="cart-item-icon">' + c.icon + '</span>' +
                         '<div class="cart-item-info"><div class="cart-item-name">' + c.name + (c.qty > 1 ? ' &times;' + c.qty : '') + '</div>' +
-                        '<div class="cart-item-price">' + (c.price * c.qty).toFixed(3) + ' KWD</div></div>' +
+                        '<div class="cart-item-price">' + (c.price * c.qty).toFixed(ZAM_DEMO.decimals) + ' ' + ZAM_DEMO.currency + '</div></div>' +
                         '<button class="cart-item-remove" onclick="removeFromCart(' + c.id + ')">&times;</button></div>';
                 }).join('');
                 if (zamPayBtn) zamPayBtn.disabled = false;
             }
-            totalEl.textContent = getTotal().toFixed(3) + ' KWD';
+            totalEl.textContent = getTotal().toFixed(ZAM_DEMO.decimals) + ' ' + ZAM_DEMO.currency;
         }
 
         function toggleCart() {
@@ -445,7 +449,7 @@
             ZamPayButton.setLoading(zamPayBtn, true);
 
             ZamCheckout.open({
-                amount: total.toFixed(3),
+                amount: total.toFixed(ZAM_DEMO.decimals),
                 orderRef: orderRef,
                 callbackURL: STORE_CONFIG.callbackURL || undefined,
                 note: 'Xcite: ' + itemNames,

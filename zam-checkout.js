@@ -17,9 +17,41 @@
   var config = {
     apiKey: null,
     baseURL: "",
-    currency: "KWD",
+    // Deprecated: the currency and timezone now arrive with every session
+    // response (`currency`, `locale`). Set only to label amounts before the
+    // first response, or to override a server that predates the field.
+    currency: null,
     pollInterval: 3000,
   };
+
+  // The locale of the ZAM service this widget is talking to, as sent with
+  // the checkout session: { country_code, currency, currency_decimals,
+  // timezone }. Amounts are shown exactly as the server formats them; dates
+  // are shown in the service's timezone so the shopper, the merchant portal
+  // and the receipt agree.
+  var serviceLocale = null;
+
+  function currencyLabel(data) {
+    if (data && data.currency) return data.currency;
+    if (serviceLocale && serviceLocale.currency) return serviceLocale.currency;
+    return config.currency || "";
+  }
+
+  function rememberLocale(data) {
+    if (data && data.locale && data.locale.currency) serviceLocale = data.locale;
+  }
+
+  function formatDate(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    var opts = { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false };
+    if (serviceLocale && serviceLocale.timezone) opts.timeZone = serviceLocale.timezone;
+    try {
+      return new Intl.DateTimeFormat(undefined, opts).format(d);
+    } catch (e) {
+      return d.toLocaleString();
+    }
+  }
 
   var state = {
     overlay: null,
@@ -154,6 +186,7 @@
       getSession(state.sessionId, function (err, data) {
         if (err) { console.warn("ZamCheckout poll error:", err); return; }
         console.log("ZamCheckout poll:", data);
+        rememberLocale(data);
         if (data && data.status === "approved") {
           showSuccess(data);
         } else if (
@@ -194,7 +227,7 @@
       '    <div class="zam-success-title">Payment Successful</div>' +
       '    <div class="zam-success-subtitle">Your transaction has been processed</div>' +
       '    <div class="zam-success-card">' +
-      '      <div class="zam-success-amount-row"><span class="zam-success-amount"></span><span class="zam-success-currency">' + config.currency + '</span></div>' +
+      '      <div class="zam-success-amount-row"><span class="zam-success-amount"></span><span class="zam-success-currency"></span></div>' +
       '      <div class="zam-success-rows"></div>' +
       '    </div>' +
       '    <button class="zam-success-btn">Done</button>' +
@@ -274,9 +307,13 @@
       statusText.innerHTML =
         '<span class="zam-dot zam-approved"></span>Payment approved';
 
-    // Populate amount
+    // Populate amount — exactly as the server formatted it, labelled with the
+    // currency it sent.
+    rememberLocale(data);
     var amountEl = successEl.querySelector(".zam-success-amount");
     if (amountEl && data.amount) amountEl.textContent = data.amount;
+    var currencyEl = successEl.querySelector(".zam-success-currency");
+    if (currencyEl) currencyEl.textContent = currencyLabel(data);
 
     // Populate detail rows
     var rowsEl = successEl.querySelector(".zam-success-rows");
@@ -288,8 +325,9 @@
       if (data.card_number) rows.push(["Card", data.card_number]);
       if (data.card_holder) rows.push(["Card Holder", data.card_holder]);
       if (data.status) rows.push(["Status", data.status.charAt(0).toUpperCase() + data.status.slice(1)]);
-      if (data.paid_at) rows.push(["Date", new Date(data.paid_at).toLocaleString()]);
-      else if (data.approved_at) rows.push(["Date", new Date(data.approved_at).toLocaleString()]);
+      if (data.paid_on) rows.push(["Date", formatDate(data.paid_on)]);
+      else if (data.paid_at) rows.push(["Date", formatDate(data.paid_at)]);
+      else if (data.approved_at) rows.push(["Date", formatDate(data.approved_at)]);
 
       rowsEl.innerHTML = rows.map(function(r) {
         return '<div class="zam-success-row"><span class="zam-success-row-label">' + r[0] + '</span><span class="zam-success-row-value">' + r[1] + '</span></div>';
@@ -327,6 +365,7 @@
      * @param {Object} opts
      * @param {string} opts.apiKey   - Device/checkout API key
      * @param {string} opts.baseURL  - Base URL of the ZAM POS API (e.g. https://zam.example.com)
+     * @param {string} [opts.currency] - Deprecated. The currency arrives with every session response; set only to label amounts before the first response.
      * @param {number} [opts.pollInterval=3000] - Status poll interval in ms
      */
     configure: function (opts) {
@@ -373,6 +412,7 @@
         }
 
         state.sessionId = data.session_id;
+        rememberLocale(data);
 
         var paymentURL = data.payment_url;
         if (paymentURL && paymentURL.charAt(0) === "/" && config.baseURL) {

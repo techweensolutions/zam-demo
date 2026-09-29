@@ -366,6 +366,10 @@
     <script src="../zam-pay-button.js"></script>
     <script src="../zam-checkout.js"></script>
     <script>
+        // Demo store locale. A real integration reads currency and decimals from
+        // the checkout session response (`currency`, `locale`); this demo prices
+        // its catalogue up front, so it declares them once here.
+        var ZAM_DEMO = { currency: 'KWD', decimals: 3 };
         // ── Kuwait Travel API Configuration ──
         var STORE_CONFIG = {
             apiKey:     'L1ritogbQ5Ez4CeQqV0UXbiwakZ2LRL6oijR1GoGUNRuMJJ2HHR_quQlCqrn9VVr',  // Set your Kuwait Travel merchant API key here
@@ -392,7 +396,7 @@
                     '<div class="trip-route">' + t.from + ' <span class="arrow">&rarr;</span> ' + t.to + ' &middot; ' + t.dest + '</div>' +
                     '<div class="trip-details">' + t.airline + ' &middot; ' + t.duration + ' &middot; ' + t.date + '</div>' +
                     '<div class="trip-bottom">' +
-                    '<div class="trip-price">' + t.price.toFixed(3) + ' <small>KWD</small></div>' +
+                    '<div class="trip-price">' + t.price.toFixed(ZAM_DEMO.decimals) + ' <small>' + ZAM_DEMO.currency + '</small></div>' +
                     '<button class="book-btn" onclick="openBooking(' + t.id + ')">Book Now</button>' +
                     '</div></div></div>';
             }).join('');
@@ -439,9 +443,9 @@
 
             var summary = document.getElementById('booking-summary');
             summary.innerHTML =
-                '<div class="line"><span>Ticket (' + currentTrip.from + ' &rarr; ' + currentTrip.to + ')</span><span>' + ticketPrice.toFixed(3) + ' KWD</span></div>' +
+                '<div class="line"><span>Ticket (' + currentTrip.from + ' &rarr; ' + currentTrip.to + ')</span><span>' + ticketPrice.toFixed(ZAM_DEMO.decimals) + ' ' + ZAM_DEMO.currency + '</span></div>' +
                 '<div class="line"><span>Passengers</span><span>&times;' + pax + '</span></div>' +
-                '<div class="total"><span>Total</span><span>' + total.toFixed(3) + ' KWD</span></div>';
+                '<div class="total"><span>Total</span><span>' + total.toFixed(ZAM_DEMO.decimals) + ' ' + ZAM_DEMO.currency + '</span></div>';
         }
 
         function closeBooking() {
@@ -468,7 +472,7 @@
             ZamPayButton.setLoading(tripPayBtn, true);
 
             ZamCheckout.open({
-                amount: total.toFixed(3),
+                amount: total.toFixed(ZAM_DEMO.decimals),
                 orderRef: orderRef,
                 callbackURL: STORE_CONFIG.callbackURL || undefined,
                 note: 'Kuwait Travel: ' + currentTrip.from + ' to ' + currentTrip.dest,
