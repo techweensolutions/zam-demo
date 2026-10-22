@@ -22,6 +22,9 @@
     // first response, or to override a server that predates the field.
     currency: null,
     pollInterval: 3000,
+    // A short chime when the payment is confirmed. Set false to keep the
+    // widget silent.
+    sound: true,
   };
 
   // The locale of the ZAM service this widget is talking to, as sent with
@@ -306,10 +309,52 @@
     if (cb) cb();
   }
 
+  // The confirmation chime. Web Audio rather than an audio file: nothing to
+  // load, nothing for a store's content policy to block. The shopper's tap on
+  // Pay earlier lets the page start audio; where the browser still refuses,
+  // the payment is confirmed on screen all the same, so any failure is silent.
+  var chimeContext = null;
+  var playNotes = function (ctx) {
+    // Two short rising notes: A5 then E6.
+    var notes = [880, 1318.5];
+    var t0 = ctx.currentTime + 0.02;
+    notes.forEach(function (freq, i) {
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      var start = t0 + i * 0.16;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.2, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.4);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.45);
+    });
+  };
+
+  function playChime() {
+    if (!config.sound) return;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!chimeContext) chimeContext = new AC();
+      var ctx = chimeContext;
+      var go = function () { playNotes(ctx); };
+      if (ctx.state === "suspended" && ctx.resume) {
+        ctx.resume().then(go, function () {});
+      } else {
+        go();
+      }
+    } catch (e) { /* the screen already says the payment went through */ }
+  }
+
   function showSuccess(data) {
     stopPolling();
     state._lastResult = data;
     state._approved = true;
+    playChime();
 
     if (!state.overlay) return;
     var successEl = state.overlay.querySelector(".zam-success-overlay");
@@ -412,6 +457,7 @@
       if (opts.baseURL) config.baseURL = opts.baseURL.replace(/\/+$/, "");
       if (opts.currency) config.currency = opts.currency;
       if (opts.pollInterval) config.pollInterval = opts.pollInterval;
+      if (typeof opts.sound === "boolean") config.sound = opts.sound;
     },
 
     /**

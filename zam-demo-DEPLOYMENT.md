@@ -68,7 +68,7 @@ event as already done.
 ## Tests
 
 ```sh
-node --test test
+node --test
 ```
 
 They run the server against a stand-in for ZAM: the server's own price, the
@@ -85,3 +85,26 @@ signature, and that no page holds a key.
 | `zam-checkout.js`, `zam-pay-button.js` | copies of `zam-service/checkout-sdk`; update both |
 | `index.html`, `xcite/`, `travel/`, `talabat/` | the pages; their catalogues (`PRODUCTS`, `TRIPS`, `MEALS`) are the prices the server uses |
 | `.env.example` | the settings; `.env` is never committed |
+
+## Running it in an Ubuntu VM (Multipass)
+
+```sh
+multipass launch lts --name zam-demo --cpus 1 --memory 1G --disk 5G
+multipass exec zam-demo -- sudo apt-get install -y nodejs
+git archive HEAD -o /tmp/zam-demo.tar && multipass transfer /tmp/zam-demo.tar zam-demo:/tmp/
+multipass exec zam-demo -- sudo bash -c 'mkdir -p /opt/zam-demo && tar -xf /tmp/zam-demo.tar -C /opt/zam-demo'
+```
+
+Run it as a service: a `zamdemo` system user, `/etc/zam-demo.env` copied from
+`.env.example` (readable by that user only), and a systemd unit with
+`EnvironmentFile=/etc/zam-demo.env` and `ExecStart=/usr/bin/node server.js` in
+`/opt/zam-demo`. After editing the env file: `sudo systemctl restart zam-demo`;
+logs: `sudo journalctl -u zam-demo -f`.
+
+The VM has its own address (`multipass list`), but the portal accepts only https
+web addresses and `http://localhost`. So open the demo as `http://localhost:8090`
+on the Mac, through a forwarder, and register that address on each POS:
+
+```sh
+node -e "const n=require('net');n.createServer(c=>{const u=n.connect(8090,'<VM address>');c.pipe(u).pipe(c);c.on('error',()=>u.destroy());u.on('error',()=>c.destroy())}).listen(8090,'127.0.0.1')"
+```

@@ -33,9 +33,9 @@ const crypto = require('node:crypto');
 
 const ROOT = __dirname;
 const STORES = {
-  xcite:   { dir: 'xcite',   prefix: 'XCITE',   catalog: 'PRODUCTS', env: 'XCITE' },
-  travel:  { dir: 'travel',  prefix: 'KWT',     catalog: 'TRIPS',    env: 'TRAVEL' },
-  talabat: { dir: 'talabat', prefix: 'TALABAT', catalog: 'MEALS',    env: 'TALABAT' },
+  xcite:   { dir: 'xcite',   prefix: 'XCITE',   catalog: 'PRODUCTS', env: 'XCITE',   name: 'Xcite' },
+  travel:  { dir: 'travel',  prefix: 'KWT',     catalog: 'TRIPS',    env: 'TRAVEL',  name: 'Kuwait Travel' },
+  talabat: { dir: 'talabat', prefix: 'TALABAT', catalog: 'MEALS',    env: 'TALABAT', name: 'Talabat' },
 };
 
 // ── what each store sells, read from the store's own page ───────────────
@@ -117,6 +117,15 @@ function price(store, body) {
     total += p.price * qty;
   }
   return { amount: fmt(total) };
+}
+
+// The address of the pay page the browser should show. ZAM reports it from its
+// CHECKOUT_BASE_URL: a full address, or only a path when that is not set. Either
+// way ZAM_PAY_BASE, when given, is where the browser reaches ZAM; otherwise a
+// bare path is resolved against ZAM_BASE_URL.
+function payPage(paymentURL, payBase = PAY_BASE, base = BASE) {
+  const u = new URL(paymentURL, (payBase || base) + '/');
+  return payBase ? payBase + u.pathname + u.search : u.href;
 }
 
 // ── talking to ZAM ─────────────────────────────────────────────────────
@@ -242,7 +251,9 @@ async function handle(req, res) {
     let r;
     try {
       r = await zam(store, 'POST', '/api/checkout/sessions', {
-        body: { amount: order.amount, order_ref: order.ref },
+        // The note is what the ZAM Cards wallet shows the shopper, and the wallet
+        // requires one. It names the store and the order, nothing about the shopper.
+        body: { amount: order.amount, order_ref: order.ref, note: STORES[store].name + ' order ' + order.ref },
         idempotencyKey: order.ref + '-1',
       });
     } catch (e) {
@@ -257,8 +268,7 @@ async function handle(req, res) {
     order.sessionId = s.session_id;
     order.currency = s.currency || order.currency;
     orders.set(order.ref, order);
-    let paymentURL = s.payment_url;
-    if (PAY_BASE) paymentURL = PAY_BASE + new URL(paymentURL).pathname;
+    const paymentURL = payPage(s.payment_url);
     return send(res, 201, { order_ref: order.ref, payment_url: paymentURL, amount: s.amount, currency: s.currency });
   }
 
@@ -327,7 +337,7 @@ function createServer() {
   });
 }
 
-module.exports = { createServer, price, verifySignature, verified, loadCatalog, readLiteral };
+module.exports = { createServer, payPage, price, verifySignature, verified, loadCatalog, readLiteral };
 
 if (require.main === module) {
   if (!BASE) console.warn('ZAM_BASE_URL is not set: the stores will load but cannot take payments.');

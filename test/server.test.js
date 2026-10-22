@@ -1,4 +1,4 @@
-// Run: node --test test
+// Run: node --test
 //
 // The demo stores' server, against a stand-in for ZAM. What matters here: the
 // server prices the order itself, creates the session with the secret key and an
@@ -87,7 +87,8 @@ test('creating an order makes a session with the secret key and an idempotency k
   const call = zam.state.calls.filter((c) => c.method === 'POST' && c.url === '/api/checkout/sessions').pop();
   assert.strictEqual(call.auth, 'Token zam_sk_live_XCITEKEYXCITEKEY');
   assert.strictEqual(call.idem, o.order_ref + '-1');
-  assert.deepStrictEqual(Object.keys(call.body).sort(), ['amount', 'order_ref'], 'nothing else is sent: no note, no payer');
+  assert.deepStrictEqual(Object.keys(call.body).sort(), ['amount', 'note', 'order_ref'], 'nothing else is sent: no payer');
+  assert.strictEqual(call.body.note, 'Xcite order ' + o.order_ref, 'the wallet requires a note, and shows this one');
 });
 
 test('each store uses its own key', async () => {
@@ -188,4 +189,13 @@ test('a webhook that does not match the order does not pay it', async () => {
   const h = `t=${t},v1=${crypto.createHmac('sha256', 'whsec_demo').update(`${t}.${body}`).digest('hex')}`;
   await fetch(base + '/zam/webhook/xcite', { method: 'POST', headers: { 'ZAM-Signature': h }, body });
   assert.strictEqual((await statusOf(o.order_ref)).status, 'pending');
+});
+
+test('the pay page address is whatever ZAM reports, however it reports it', () => {
+  const { payPage } = require('../server.js');
+  const B = 'http://zam.test:8082';
+  assert.strictEqual(payPage('http://zam.test:8082/api/pos/view/KW1', '', B), 'http://zam.test:8082/api/pos/view/KW1');
+  assert.strictEqual(payPage('/api/pos/view/KW1', '', B), 'http://zam.test:8082/api/pos/view/KW1', 'a bare path is resolved against ZAM');
+  assert.strictEqual(payPage('/api/pos/view/KW1', 'https://pay.test', B), 'https://pay.test/api/pos/view/KW1');
+  assert.strictEqual(payPage('http://localhost:8082/api/pos/view/KW1', 'https://pay.test', B), 'https://pay.test/api/pos/view/KW1', 'an address the browser cannot reach is replaced');
 });
