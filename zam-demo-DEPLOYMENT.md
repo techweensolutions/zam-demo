@@ -19,6 +19,8 @@ ask this server how the order stands.
 Because it needs a server, the demo no longer runs as static files (GitHub Pages
 and `demo.techween.net` as it was). Run `server.js` somewhere a browser can reach.
 
+> Installing it on a cloud VM or on the dev server, step by step: [INSTALL-VM.md](INSTALL-VM.md).
+
 ## What you need
 
 - Node 18 or later. There is nothing to install.

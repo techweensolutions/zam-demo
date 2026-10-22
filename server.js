@@ -343,8 +343,10 @@ if (require.main === module) {
   if (!BASE) console.warn('ZAM_BASE_URL is not set: the stores will load but cannot take payments.');
   for (const s of Object.keys(STORES)) if (!keys[s]) console.warn(`ZAM_KEY_${STORES[s].env} is not set: ${s} cannot take payments.`);
   const port = Number(process.env.PORT || 8090);
-  createServer().listen(port, () => {
-    console.log(`ZAM demo stores on http://localhost:${port}  (ZAM: ${BASE || 'not set'})`);
+  // HOST=127.0.0.1 when a reverse proxy in front takes the public connections.
+  const host = process.env.HOST || '0.0.0.0';
+  createServer().listen(port, host, () => {
+    console.log(`ZAM demo stores on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}  (ZAM: ${BASE || 'not set'})`);
     // ZAM's pay page is framed by these pages, and ZAM lets only the addresses
     // registered for the POS do that.
     console.log(`Each store's POS must list this site's address as a web address (e.g. http://localhost:${port}), or its payment window stays blank.`);
