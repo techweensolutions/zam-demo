@@ -1,7 +1,7 @@
 /**
- * Zam Pay Button — Standard payment button for web and mobile
+ * ZAM Pay Button — Standard payment button for web and mobile
  *
- * Drop-in component that renders a branded "Zam Pay" button following
+ * Drop-in component that renders a branded "ZAM Pay" button following
  * the same conventions as Apple Pay / Google Pay buttons.
  *
  * Usage (HTML attribute API):
@@ -34,7 +34,7 @@
   var BORDER   = "#D5D5D5";
 
   // ── Inline SVG logo ──────────────────────────────────────────────────
-  // Reproduces the Zam brand mark: two orange diagonal stripes + ZAM text
+  // Reproduces the ZAM brand mark: two orange diagonal stripes + ZAM text
 
   function zamLogo(stripeColor, textColor, height) {
     height = height || 22;
@@ -161,7 +161,7 @@
     btn.className = "zam-pay-btn zam-pay-btn--" + style +
                     (size !== "default" ? " zam-pay-btn--" + size : "");
     btn.setAttribute("type", "button");
-    btn.setAttribute("aria-label", (labelText ? labelText + " " : "") + "Zam");
+    btn.setAttribute("aria-label", (labelText ? labelText + " " : "") + "ZAM");
     if (isRTL) btn.setAttribute("dir", "rtl");
     if (disabled) btn.disabled = true;
 
