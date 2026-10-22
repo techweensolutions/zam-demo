@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zam Demo Stores</title>
+    <title>ZAM Demo Stores</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -211,10 +211,10 @@
 <body>
     <header class="header">
         <div class="header-logo">
-            <img src="zam_logo.png" alt="Zam Logo">
-            <span>Zam Demo</span>
+            <img src="zam_logo.png" alt="ZAM Logo">
+            <span>ZAM Demo</span>
         </div>
-        <p>Explore demo online stores powered by Zam Checkout. Tap a card to pay using your Zam Card.</p>
+        <p>Explore demo online stores powered by ZAM Checkout. Tap a card to pay using your ZAM Card.</p>
     </header>
 
 
@@ -258,20 +258,17 @@
     </footer>
 
     <script>
-        (function() {
-            var savedURL = localStorage.getItem('zam_demo_url');
-            var savedKey = localStorage.getItem('zam_demo_key');
-            if (savedURL) document.getElementById('cfg-url').value = savedURL;
-            if (savedKey) document.getElementById('cfg-key').value = savedKey;
-        })();
-
-        function saveConfig() {
-            var url = document.getElementById('cfg-url').value.trim();
-            var key = document.getElementById('cfg-key').value.trim();
-            if (url) localStorage.setItem('zam_demo_url', url);
-            if (key) localStorage.setItem('zam_demo_key', key);
-            alert('Settings saved! They will be used across all demo stores.');
-        }
+        // Which stores can take payments on this server: their secret key is set there.
+        fetch('/api/config', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (c) {
+            var off = [];
+            Object.keys(c.stores).forEach(function (k) { if (!c.zam || !c.stores[k]) off.push(k); });
+            if (off.length) {
+                var n = document.createElement('p');
+                n.style.cssText = 'text-align:center;color:#b45309;font-size:13px;margin:16px';
+                n.textContent = 'Not connected to ZAM on this server: ' + off.join(', ') + '.';
+                document.body.insertBefore(n, document.querySelector('.footer'));
+            }
+        }).catch(function () {});
     </script>
 </body>
 </html>

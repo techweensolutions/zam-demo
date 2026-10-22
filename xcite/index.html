@@ -294,7 +294,7 @@
 
     <div class="hero">
         <h1>Top Electronics in Kuwait</h1>
-        <p>Shop the latest gadgets &mdash; pay instantly with your Zam Card</p>
+        <p>Shop the latest gadgets &mdash; pay instantly with your ZAM Card</p>
     </div>
 
     <div class="categories">
@@ -332,18 +332,12 @@
 
     <script src="../zam-pay-button.js"></script>
     <script src="../zam-checkout.js"></script>
+    <script src="../zam-demo-pay.js"></script>
     <script>
         // Demo store locale. A real integration reads currency and decimals from
         // the checkout session response (`currency`, `locale`); this demo prices
         // its catalogue up front, so it declares them once here.
         var ZAM_DEMO = { currency: 'KWD', decimals: 3 };
-        // ── Xcite Electronics API Configuration ──
-        var STORE_CONFIG = {
-            apiKey:     '',  // Set your Xcite merchant API key here
-            baseURL:    'https://zam.techween.net',  // Set your Zam API base URL here (e.g. https://zam-api.example.com)
-            callbackURL:'',  // Set your server-side webhook URL here (e.g. https://xcite.example.com/zam/callback)
-        };
-
         var PRODUCTS = [
             { id: 1, name: 'iPhone 16 Pro Max', desc: '256GB, Natural Titanium', price: 449.900, icon: '&#128241;', cat: 'Phones' },
             { id: 2, name: 'Samsung Galaxy S25 Ultra', desc: '512GB, Titanium Black', price: 399.900, icon: '&#128242;', cat: 'Phones' },
@@ -434,45 +428,31 @@
         }
 
         function checkout() {
-            var baseURL = STORE_CONFIG.baseURL || localStorage.getItem('zam_demo_url');
-            var apiKey = STORE_CONFIG.apiKey || localStorage.getItem('zam_demo_key');
-            if (!apiKey) { alert('Please set the Xcite API key in STORE_CONFIG or on the main demo page.'); return; }
-
-            var total = getTotal();
-            if (total <= 0) return;
-
-            ZamCheckout.configure({ apiKey: apiKey, baseURL: baseURL });
-
-            var orderRef = 'XCITE-' + Date.now();
-            var itemNames = cart.map(function(c) { return c.name; }).join(', ');
-
+            if (getTotal() <= 0) return;
             ZamPayButton.setLoading(zamPayBtn, true);
-
-            ZamCheckout.open({
-                amount: total.toFixed(ZAM_DEMO.decimals),
-                orderRef: orderRef,
-                callbackURL: STORE_CONFIG.callbackURL || undefined,
-                note: 'Xcite: ' + itemNames,
+            // The server prices the order and creates the payment; this page holds no key.
+            ZamDemo.pay('xcite', { items: cart.map(function(c) { return { id: c.id, qty: c.qty }; }) }, {
                 onSuccess: function(result) {
-                    ZamPayButton.setLoading(zamPayBtn, false);
                     cart = [];
                     renderCart();
                     toggleCart();
                     var banner = document.getElementById('result');
                     banner.className = 'result-banner success';
-                    banner.innerHTML = '<div class="inner"><strong>Order Confirmed!</strong> Your order ' + orderRef + ' has been paid successfully.</div>';
+                    banner.textContent = '';
+                    var inner = document.createElement('div');
+                    inner.className = 'inner';
+                    var b = document.createElement('strong');
+                    b.textContent = 'Order Confirmed!';
+                    inner.appendChild(b);
+                    inner.appendChild(document.createTextNode(' Your order ' + result.order_ref + ' has been paid successfully.'));
+                    banner.appendChild(inner);
                 },
-                onCancel: function() {
-                    ZamPayButton.setLoading(zamPayBtn, false);
-                },
-                onError: function(err) {
-                    ZamPayButton.setLoading(zamPayBtn, false);
-                    alert('Payment error: ' + (err.error || 'Something went wrong'));
-                }
+                onEnd: function() { ZamPayButton.setLoading(zamPayBtn, false); },
+                onError: function(err) { alert('Payment error: ' + (err.error || 'Something went wrong')); }
             });
         }
 
-        // Initialize Zam Pay button
+        // Initialize ZAM Pay button
         var zamPayBtn = ZamPayButton.render(document.getElementById('checkout-btn-wrap'), {
             type: 'pay', style: 'dark', disabled: true,
             onClick: function() { checkout(); }

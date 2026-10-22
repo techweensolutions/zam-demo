@@ -1,0 +1,7 @@
+{
+  "name": "zam-demo",
+  "private": true,
+  "description": "Demo online stores for ZAM Checkout (server-side flow)",
+  "scripts": { "start": "node server.js", "test": "node --test test" },
+  "engines": { "node": ">=18" }
+}

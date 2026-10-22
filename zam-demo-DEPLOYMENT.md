@@ -1,158 +1,87 @@
-# Zam Demo Stores - Deployment Guide
+# ZAM Demo Stores: running them
 
-## Overview
+Three demo online stores for ZAM Checkout:
 
-Three demo online stores showcasing Zam Checkout integration:
+| Store | Sells | Path |
+|---|---|---|
+| **Xcite Electronics** | phones, laptops, gaming gear | `/xcite/` |
+| **Kuwait Travel** | flights and packages | `/travel/` |
+| **Talabat** | light healthy meals | `/talabat/` |
 
-| Store | Description | Path |
-|-------|-------------|------|
-| **Xcite Electronics** | Smartphones, laptops, gaming gear | `/xcite/` |
-| **Kuwait Travel** | Flight and travel package booking | `/travel/` |
-| **Talabat** | Light healthy meals delivery | `/talabat/` |
+They use ZAM Checkout the way a real store should (checkout v2, see
+`zam-service/checkout-sdk/ZAM_CHECKOUT_INTEGRATION.md`): **a page never holds a
+key.** `server.js` holds the stores' secret keys, prices every order itself from
+the store pages' own catalogues, creates the payment at ZAM, and marks an order
+paid only when ZAM says it is approved for the amount, currency and order
+reference it asked for. The pages show ZAM's pay page in the checkout widget and
+ask this server how the order stands.
 
-The landing page (`/`) lets users choose a store and configure shared fallback API settings.
+Because it needs a server, the demo no longer runs as static files (GitHub Pages
+and `demo.techween.net` as it was). Run `server.js` somewhere a browser can reach.
 
-## Prerequisites
+## What you need
 
-- A Zam POS Acquirer account with **merchant API keys** (one per store, or a shared key)
-- A web server or static hosting provider (Nginx, Apache, Netlify, Vercel, Cloudflare Pages, etc.)
+- Node 18 or later. There is nothing to install.
+- A ZAM environment (staging) and, for each store, an **online POS** with a **secret key**.
 
-## Directory Structure
+## 1. One online POS per store, in the merchant portal
 
-```
-zam-demo/
-├── index.html              # Landing page (store selector + fallback API config)
-├── zam-checkout.js         # Zam Checkout SDK (bundled)
-├── xcite/
-│   └── index.html          # Xcite Electronics store
-├── travel/
-│   └── index.html          # Kuwait Travel store
-├── pick/
-│   └── index.html          # Pick healthy meals store
-└── zam-demo-DEPLOYMENT.md  # This file
-```
+For each store (any merchant will do for a demo; one merchant can hold all three):
 
-## Step 1: Configure Merchant API Keys
+1. **POS Terminals → create** an *Online* terminal named after the store. A POS created now uses checkout v2: it takes a secret key and refuses browser-side creation.
+2. Open its **Checkout Keys** page.
+3. **Generate new key → Secret key.** Copy it at once; it is shown once. It goes in `.env`, nowhere else.
+4. **Limit for one checkout session:** set a low one, for example `500`. A demo does not need more, and the limit is what contains a leaked key.
+5. **Web addresses:** add the address the demo is served from, for example `http://localhost:8090` or `https://demo.example`. This is required: ZAM's pay page appears *inside* the demo, and ZAM lets only the addresses registered for the POS frame it. Without this the payment window stays blank.
 
-Each store has its own `STORE_CONFIG` at the top of its JavaScript section. Set the API key and base URL per store:
+## 2. Configure and start
 
-### Xcite Electronics — `xcite/index.html`
-
-```js
-var STORE_CONFIG = {
-    apiKey:  'xcite-merchant-api-key-here',
-    baseURL: 'https://zam-api.your-domain.com',
-};
+```sh
+cp .env.example .env      # fill in ZAM_BASE_URL and the three secret keys
+set -a; . ./.env; set +a
+node server.js            # http://localhost:8090
 ```
 
-### Kuwait Travel — `travel/index.html`
+`GET /api/config` (and the landing page) say which stores are connected: a store
+whose key is missing loads but cannot take payments.
 
-```js
-var STORE_CONFIG = {
-    apiKey:  'kuwait-travel-merchant-api-key-here',
-    baseURL: 'https://zam-api.your-domain.com',
-};
+`ZAM_BASE_URL` is the ZAM Service's public address. The pay-page address ZAM
+returns comes from its `CHECKOUT_BASE_URL` setting; on staging it must be the
+public address too, not `localhost`. If it is not, set `ZAM_PAY_BASE` here.
+
+## 3. Pay
+
+Open a store, add items, press **Pay with ZAM**. The widget shows ZAM's pay page.
+Pay with the ZAM Cards wallet; the widget closes with the order reference once
+ZAM reports the payment approved. The server log shows
+`order … paid (status check)`.
+
+## Optional: confirm by webhook
+
+By default the server asks ZAM for the session's status while the widget is
+open. To use the signed webhook as well, make the server reachable from ZAM over
+https, register `https://<server>/zam/webhook/<store>` as a **Webhook endpoint**
+on the store's POS, and put the signing secret it shows in `ZAM_WHSEC_<STORE>`.
+The server verifies `ZAM-Signature`, matches the order, and treats a repeated
+event as already done.
+
+## Tests
+
+```sh
+node --test test
 ```
 
-### Pick — `pick/index.html`
+They run the server against a stand-in for ZAM: the server's own price, the
+secret key and `Idempotency-Key` on the create call, an approval for the wrong
+amount, currency or order not paying anything, cancel, expiry, the webhook's
+signature, and that no page holds a key.
 
-```js
-var STORE_CONFIG = {
-    apiKey:  'pick-merchant-api-key-here',
-    baseURL: 'https://zam-api.your-domain.com',
-};
-```
+## Files
 
-> **Fallback:** If `STORE_CONFIG` values are left empty, the stores fall back to the shared settings entered via the landing page (stored in `localStorage`).
-
-## Step 2: Deploy to Your Domain
-
-### Using Nginx
-
-```nginx
-server {
-    listen 80;
-    server_name demo.your-domain.com;
-
-    root /var/www/zam-demo;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ =404;
-    }
-}
-```
-
-```bash
-# Copy files to server
-scp -r zam-demo/* user@server:/var/www/zam-demo/
-```
-
-### Using Netlify
-
-```bash
-cd zam-demo
-npx netlify-cli deploy --prod --dir=.
-```
-
-Set the custom domain in Netlify dashboard under **Site settings > Domain management**.
-
-### Using Vercel
-
-```bash
-cd zam-demo
-npx vercel --prod
-```
-
-Then assign your domain in the Vercel dashboard.
-
-### Using Cloudflare Pages
-
-1. Push the `zam-demo` directory to a Git repository
-2. Connect the repo in Cloudflare Pages dashboard
-3. Set build output directory to `zam-demo`
-4. Assign your custom domain
-
-### Using GitHub Pages
-
-1. Push the `zam-demo` directory to a `gh-pages` branch
-2. In repo **Settings > Pages**, select the `gh-pages` branch
-3. Optionally configure a custom domain
-
-## Step 3: Set Up the Zam API Backend
-
-Ensure your Zam POS Acquirer API is accessible at the configured `baseURL`. The SDK calls these endpoints:
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `POST` | `/api/checkout/sessions` | Create a payment session |
-| `GET` | `/api/checkout/sessions/:id` | Poll session status |
-| `POST` | `/api/checkout/sessions/:id/cancel` | Cancel a session |
-
-### CORS Configuration
-
-If the demo site and API are on different domains, configure CORS on the API server:
-
-```
-Access-Control-Allow-Origin: https://demo.your-domain.com
-Access-Control-Allow-Headers: Content-Type, Authorization
-Access-Control-Allow-Methods: GET, POST, OPTIONS
-```
-
-## Quick Local Testing
-
-```bash
-cd zam-demo
-python3 -m http.server 8080
-```
-
-Open `http://localhost:8080` in your browser. The SDK is bundled at `zam-checkout.js` so no extra path configuration is needed.
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| "Call configure() first" | Set the API key in `STORE_CONFIG` or via the landing page |
-| CORS errors | Add your demo domain to the API's allowed origins |
-| SDK not loading | Verify `zam-checkout.js` exists in the `zam-demo/` root |
-| Payment stuck on "Waiting" | Check that the API base URL is correct and reachable |
+| | |
+|---|---|
+| `server.js` | the stores' server: pricing, ZAM calls, payment confirmation, static files |
+| `zam-demo-pay.js` | what the pages call to pay: asks the server, opens the widget |
+| `zam-checkout.js`, `zam-pay-button.js` | copies of `zam-service/checkout-sdk`; update both |
+| `index.html`, `xcite/`, `travel/`, `talabat/` | the pages; their catalogues (`PRODUCTS`, `TRIPS`, `MEALS`) are the prices the server uses |
+| `.env.example` | the settings; `.env` is never committed |

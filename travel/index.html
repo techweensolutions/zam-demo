@@ -327,7 +327,7 @@
 
     <div class="hero">
         <h1>Explore the World</h1>
-        <p>Book flights and travel packages from Kuwait. Pay instantly with your Zam Card.</p>
+        <p>Book flights and travel packages from Kuwait. Pay instantly with your ZAM Card.</p>
         <div class="search-bar">
             <div class="field">
                 <label>From</label>
@@ -365,18 +365,12 @@
 
     <script src="../zam-pay-button.js"></script>
     <script src="../zam-checkout.js"></script>
+    <script src="../zam-demo-pay.js"></script>
     <script>
         // Demo store locale. A real integration reads currency and decimals from
         // the checkout session response (`currency`, `locale`); this demo prices
         // its catalogue up front, so it declares them once here.
         var ZAM_DEMO = { currency: 'KWD', decimals: 3 };
-        // ── Kuwait Travel API Configuration ──
-        var STORE_CONFIG = {
-            apiKey:     '',  // Set your Kuwait Travel merchant API key here
-            baseURL:    'https://zam.techween.net',  // Set your Zam API base URL here (e.g. https://zam-api.example.com)
-            callbackURL:'',  // Set your server-side webhook URL here (e.g. https://travel.example.com/zam/callback)
-        };
-
         var TRIPS = [
             { id: 1, from: 'KWI', to: 'DXB', dest: 'Dubai', airline: 'Kuwait Airways', duration: '1h 30m', date: 'Daily flights', price: 45.000, icon: '&#127963;&#65039;', bg: '#e0f2fe', type: 'Flight' },
             { id: 2, from: 'KWI', to: 'IST', dest: 'Istanbul', airline: 'Turkish Airlines', duration: '4h 15m', date: 'Daily flights', price: 125.000, icon: '&#128332;', bg: '#fef3c7', type: 'Flight' },
@@ -427,7 +421,7 @@
             updateSummary();
             document.getElementById('booking-overlay').classList.add('open');
 
-            // Render Zam Pay button inside the booking modal
+            // Render ZAM Pay button inside the booking modal
             tripPayBtn = ZamPayButton.render(document.getElementById('pay-trip-btn-wrap'), {
                 type: 'pay', style: 'dark', size: 'small',
                 onClick: function() { payTrip(); }
@@ -460,36 +454,29 @@
         }
 
         function payTrip() {
-            var baseURL = STORE_CONFIG.baseURL || localStorage.getItem('zam_demo_url');
-            var apiKey = STORE_CONFIG.apiKey || localStorage.getItem('zam_demo_key');
-            if (!apiKey) { alert('Please set the Kuwait Travel API key in STORE_CONFIG or on the main demo page.'); return; }
-
-            var total = getBookingTotal();
-            var orderRef = 'KWT-' + Date.now();
-
-            ZamCheckout.configure({ apiKey: apiKey, baseURL: baseURL });
-
+            var dest = currentTrip.dest;
             ZamPayButton.setLoading(tripPayBtn, true);
-
-            ZamCheckout.open({
-                amount: total.toFixed(ZAM_DEMO.decimals),
-                orderRef: orderRef,
-                callbackURL: STORE_CONFIG.callbackURL || undefined,
-                note: 'Kuwait Travel: ' + currentTrip.from + ' to ' + currentTrip.dest,
+            // The server prices the booking and creates the payment; this page holds no key.
+            ZamDemo.pay('travel', {
+                tripId: currentTrip.id,
+                cls: parseFloat(document.getElementById('class').value),
+                pax: parseInt(document.getElementById('pax').value)
+            }, {
                 onSuccess: function(result) {
-                    ZamPayButton.setLoading(tripPayBtn, false);
                     closeBooking();
                     var banner = document.getElementById('result');
                     banner.className = 'result-banner success';
-                    banner.innerHTML = '<div class="inner"><strong>Booking Confirmed!</strong> Your trip to ' + currentTrip.dest + ' (Ref: ' + orderRef + ') has been booked and paid.</div>';
+                    banner.textContent = '';
+                    var inner = document.createElement('div');
+                    inner.className = 'inner';
+                    var b = document.createElement('strong');
+                    b.textContent = 'Booking Confirmed!';
+                    inner.appendChild(b);
+                    inner.appendChild(document.createTextNode(' Your trip to ' + dest + ' (Ref: ' + result.order_ref + ') has been booked and paid.'));
+                    banner.appendChild(inner);
                 },
-                onCancel: function() {
-                    ZamPayButton.setLoading(tripPayBtn, false);
-                },
-                onError: function(err) {
-                    ZamPayButton.setLoading(tripPayBtn, false);
-                    alert('Payment error: ' + (err.error || 'Something went wrong'));
-                }
+                onEnd: function() { ZamPayButton.setLoading(tripPayBtn, false); },
+                onError: function(err) { alert('Payment error: ' + (err.error || 'Something went wrong')); }
             });
         }
 

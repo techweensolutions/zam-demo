@@ -183,9 +183,11 @@
     stopPolling();
     state.pollTimer = setInterval(function () {
       if (!state.sessionId) return;
-      getSession(state.sessionId, function (err, data) {
-        if (err) { console.warn("ZamCheckout poll error:", err); return; }
-        console.log("ZamCheckout poll:", data);
+      // A store that creates its sessions on its own server (openSession)
+      // reads the status there too; the key stays on that server.
+      var read = state.reader || function (cb) { getSession(state.sessionId, cb); };
+      read(function (err, data) {
+        if (err) { console.warn("ZamCheckout: could not read the payment status"); return; }
         rememberLocale(data);
         if (data && data.status === "approved") {
           showSuccess(data);
@@ -198,6 +200,12 @@
         }
       });
     }, config.pollInterval);
+  }
+
+  // The pay page address must be a web address or a path on this site, never a
+  // script URL.
+  function isPayableURL(u) {
+    return /^(https?:\/\/|\/(?!\/))/i.test(u || "");
   }
 
   function stopPolling() {
@@ -217,7 +225,15 @@
       '  <button class="zam-close" aria-label="Close">' +
       '    <svg viewBox="0 0 14 14"><line x1="1" y1="1" x2="13" y2="13"/><line x1="13" y1="1" x2="1" y2="13"/></svg>' +
       "  </button>" +
-      '  <iframe class="zam-frame" allow="web-share; clipboard-write" src="' + paymentURL + '"></iframe>' +
+      // autoplay: delegated so the payment page can play its ultrasound
+      // beacon ("Send code by sound"). The page still waits for the payer to
+      // tap; without the delegation a cross-origin frame cannot start audio
+      // at all, and the control would fail silently.
+      // sandbox: the pay page is ZAM's, not the store's, and gets only what it
+      // uses: its own scripts and storage, a window for the wallet app link, and
+      // a navigation of the store's page, when the shopper taps, to open the
+      // ZAM Cards app.
+      '  <iframe class="zam-frame" allow="web-share; clipboard-write; autoplay" sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation"></iframe>' +
       '  <div class="zam-footer">' +
       '    <div class="zam-footer-status"><span class="zam-dot"></span>Waiting for payment</div>' +
       '    <button class="zam-cancel-btn">Cancel</button>' +
@@ -234,6 +250,10 @@
       '    <div class="zam-success-footer">Secured by <span>Zam</span></div>' +
       "  </div>" +
       "</div>";
+
+    // The address goes in as a property, never into the markup, and as a web address
+    // or a path on this site.
+    overlay.querySelector(".zam-frame").src = paymentURL;
 
     // Close button
     overlay.querySelector(".zam-close").addEventListener("click", function () {
@@ -273,7 +293,11 @@
 
   function handleCancel() {
     var cb = state.callbacks.onCancel;
-    if (state.sessionId) {
+    if (state.canceler) {
+      state.canceler(function () {
+        /* fire-and-forget */
+      });
+    } else if (state.sessionId) {
       cancelSession(state.sessionId, function () {
         /* fire-and-forget */
       });
@@ -329,9 +353,22 @@
       else if (data.paid_at) rows.push(["Date", formatDate(data.paid_at)]);
       else if (data.approved_at) rows.push(["Date", formatDate(data.approved_at)]);
 
-      rowsEl.innerHTML = rows.map(function(r) {
-        return '<div class="zam-success-row"><span class="zam-success-row-label">' + r[0] + '</span><span class="zam-success-row-value">' + r[1] + '</span></div>';
-      }).join("");
+      // Values come from the server and include the merchant's own order
+      // reference, so they are set as text and never parsed as markup.
+      rowsEl.textContent = "";
+      rows.forEach(function (r) {
+        var row = document.createElement("div");
+        row.className = "zam-success-row";
+        var label = document.createElement("span");
+        label.className = "zam-success-row-label";
+        label.textContent = r[0];
+        var value = document.createElement("span");
+        value.className = "zam-success-row-value";
+        value.textContent = r[1];
+        row.appendChild(label);
+        row.appendChild(value);
+        rowsEl.appendChild(row);
+      });
     }
 
     successEl.classList.add("zam-visible");
@@ -353,6 +390,8 @@
       }, 300);
     }
     state.sessionId = null;
+    state.reader = null;
+    state.canceler = null;
     state.callbacks = {};
     state._approved = false;
   }
@@ -395,6 +434,10 @@
         console.error("ZamCheckout: amount is required");
         return;
       }
+      // One checkout at a time: a second click on Pay while one is open or
+      // being created must not start another session for the same order.
+      if (state.overlay || state.opening) return;
+      state.opening = true;
 
       injectStyles();
 
@@ -405,6 +448,7 @@
       };
 
       createSession(opts, function (err, data) {
+        state.opening = false;
         if (err) {
           console.error("ZamCheckout: session creation failed", err);
           if (state.callbacks.onError) state.callbacks.onError(err);
@@ -418,6 +462,11 @@
         if (paymentURL && paymentURL.charAt(0) === "/" && config.baseURL) {
           paymentURL = config.baseURL + paymentURL;
         }
+        if (!isPayableURL(paymentURL)) {
+          console.error("ZamCheckout: the service returned no payment address");
+          if (state.callbacks.onError) state.callbacks.onError(new Error("No payment address"));
+          return;
+        }
         state.overlay = buildModal(paymentURL);
         document.body.appendChild(state.overlay);
 
@@ -428,6 +477,53 @@
 
         startPolling();
       });
+    },
+
+    /**
+     * Open the checkout modal for a session your own server created.
+     *
+     * This is the server-side flow: your server creates the session with a
+     * secret key and gives the page only the pay page address; the page never
+     * holds a key. The widget shows the pay page and asks you for the status.
+     * Mark the order paid on your server from its own check or the signed
+     * webhook, never because this callback ran.
+     *
+     * @param {Object}   opts
+     * @param {string}   opts.paymentURL - payment_url from your server's create call
+     * @param {Function} opts.getStatus  - function (cb): ask your server for the
+     *                                     session; cb(err, { status, amount, currency,
+     *                                     order_ref, ... }) with status "pending",
+     *                                     "approved", "canceled" or "expired"
+     * @param {Function} [opts.cancel]   - function (cb): ask your server to cancel
+     * @param {string}   [opts.sessionId]
+     * @param {Function} [opts.onSuccess] - called with the status object once approved
+     * @param {Function} [opts.onCancel]
+     * @param {Function} [opts.onError]
+     */
+    openSession: function (opts) {
+      if (!opts || !isPayableURL(opts.paymentURL) || typeof opts.getStatus !== "function") {
+        console.error("ZamCheckout.openSession: paymentURL and getStatus are required");
+        if (opts && opts.onError) opts.onError(new Error("paymentURL and getStatus are required"));
+        return;
+      }
+      if (state.overlay || state.opening) return;
+
+      injectStyles();
+
+      state.callbacks = {
+        onSuccess: opts.onSuccess,
+        onCancel: opts.onCancel,
+        onError: opts.onError,
+      };
+      state.sessionId = opts.sessionId || "external";
+      state.reader = opts.getStatus;
+      state.canceler = typeof opts.cancel === "function" ? opts.cancel : null;
+      state.overlay = buildModal(opts.paymentURL);
+      document.body.appendChild(state.overlay);
+      requestAnimationFrame(function () {
+        state.overlay.classList.add("zam-visible");
+      });
+      startPolling();
     },
 
     /**
