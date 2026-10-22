@@ -199,3 +199,10 @@ test('the pay page address is whatever ZAM reports, however it reports it', () =
   assert.strictEqual(payPage('/api/pos/view/KW1', 'https://pay.test', B), 'https://pay.test/api/pos/view/KW1');
   assert.strictEqual(payPage('http://localhost:8082/api/pos/view/KW1', 'https://pay.test', B), 'https://pay.test/api/pos/view/KW1', 'an address the browser cannot reach is replaced');
 });
+
+test('the pay helper unlocks the confirmation sound inside the tap', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'zam-demo-pay.js'), 'utf8');
+  const prepare = src.indexOf('ZamCheckout.prepare()');
+  assert.ok(prepare > 0, 'pay() must call ZamCheckout.prepare()');
+  assert.ok(prepare < src.indexOf('json("POST"'), 'and before the first asynchronous step, or the browser will not allow it');
+});

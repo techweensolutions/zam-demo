@@ -28,6 +28,11 @@
     var ended = false;
     function end() { if (!ended) { ended = true; if (cb.onEnd) cb.onEnd(); } }
 
+    // Unlock the confirmation sound now, inside the shopper's tap: browsers
+    // refuse to start audio later, once the order has been priced and the
+    // payment confirmed.
+    if (root.ZamCheckout && root.ZamCheckout.prepare) root.ZamCheckout.prepare();
+
     json("POST", "/api/orders/" + store, order).then(function (r) {
       if (!r.ok) {
         end();

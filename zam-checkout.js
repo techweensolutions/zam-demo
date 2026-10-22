@@ -334,16 +334,41 @@
     });
   };
 
+  // One audio context for the page. Browsers, Safari above all, start audio only
+  // from inside a tap, so it is made, and resumed, by prepare() during the
+  // shopper's tap on Pay and merely used when the payment is confirmed.
+  function audioContext() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!chimeContext) chimeContext = new AC();
+    return chimeContext;
+  }
+
+  function prepareSound() {
+    if (!config.sound) return;
+    try {
+      var ctx = audioContext();
+      if (ctx && ctx.state === "suspended" && ctx.resume) {
+        ctx.resume().then(function () {}, function () {});
+      }
+    } catch (e) { /* silent */ }
+  }
+
   function playChime() {
     if (!config.sound) return;
     try {
-      var AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      if (!chimeContext) chimeContext = new AC();
-      var ctx = chimeContext;
-      var go = function () { playNotes(ctx); };
+      var ctx = audioContext();
+      if (!ctx) return;
+      var go = function () {
+        if (ctx.state !== "running") {
+          console.warn("ZamCheckout: the browser did not allow the confirmation sound. Call ZamCheckout.prepare() from the Pay button's click handler.");
+        }
+        playNotes(ctx);
+      };
       if (ctx.state === "suspended" && ctx.resume) {
-        ctx.resume().then(go, function () {});
+        ctx.resume().then(go, function () {
+          console.warn("ZamCheckout: the browser did not allow the confirmation sound. Call ZamCheckout.prepare() from the Pay button's click handler.");
+        });
       } else {
         go();
       }
@@ -461,6 +486,14 @@
     },
 
     /**
+     * Unlock the confirmation sound. Call it first thing in the click handler of
+     * your Pay button, before anything asynchronous: browsers let a page start
+     * audio only from inside a tap. open() and openSession() call it too, which
+     * is enough when they run straight from the click.
+     */
+    prepare: prepareSound,
+
+    /**
      * Open the checkout modal.
      * @param {Object} opts
      * @param {string}   opts.amount       - Payment amount (required)
@@ -484,6 +517,7 @@
       // being created must not start another session for the same order.
       if (state.overlay || state.opening) return;
       state.opening = true;
+      prepareSound();
 
       injectStyles();
 
@@ -553,6 +587,7 @@
         return;
       }
       if (state.overlay || state.opening) return;
+      prepareSound();
 
       injectStyles();
 
