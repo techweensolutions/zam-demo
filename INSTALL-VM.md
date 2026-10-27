@@ -8,6 +8,7 @@ the browser is when someone pays**. Decide that first.
 |---|---|---|---|
 | **Inside the office network** (192.168.8.x) | a VM on that network: the dev server 192.168.8.100, or a local VM | `http://192.168.8.160:8082` and the same as `ZAM_PAY_BASE` | an SSH tunnel, then `http://localhost:8090` (**path L**, step 6L) |
 | **Outside the office** (a laptop at home, a phone on mobile data) | a cloud VM with a domain name | `https://zam.techween.net` | nginx and a Let's Encrypt certificate (**path C**, step 6C) |
+| **Outside the office**, demo on the office dev server | 192.168.8.170, published as `zamdemo.techween.net` through the office gateway | `http://192.168.8.160:8082`, with `ZAM_PAY_BASE=https://zam.techween.net` | the gateway's nginx and certbot (**path G**, step 6G) |
 
 > **Two limits to know before you start.**
 >
@@ -274,6 +275,98 @@ in a tab to check.
 
 ---
 
+## 6G. Path G: a public name through the office gateway
+
+For `zamdemo.techween.net` pointing at the demo on the dev server (192.168.8.170).
+The office already has a gateway, **qema-dev at 192.168.8.100**, that receives the
+`techween.net` names (`37.34.255.170`), holds their Let's Encrypt certificates and
+proxies inward. The demo's site goes there too, so nothing changes on the router.
+
+```
+browser ── https://zamdemo.techween.net ──▶ gateway 192.168.8.100 ──▶ demo 192.168.8.170:8090
+browser ── https://zam.techween.net (the pay page) ──▶ gateway ──▶ ZAM 192.168.8.160
+demo server ── http://192.168.8.160:8082 ──▶ ZAM          (server to server, inside the office)
+```
+
+**G1. DNS.** At GoDaddy, in the `techween.net` zone, add an `A` record: name
+`zamdemo`, value `37.34.255.170`. Check it from any computer (it can take a few
+minutes):
+
+```sh
+dig +short zamdemo.techween.net        # 37.34.255.170
+```
+
+**G2. The demo server (192.168.8.170).** Two settings change from path L: the pay
+page now opens from the public name, and the gateway must be able to reach the demo.
+
+```sh
+sudo nano /etc/zam-demo.env
+```
+```ini
+ZAM_BASE_URL=http://192.168.8.160:8082
+ZAM_PAY_BASE=https://zam.techween.net
+HOST=0.0.0.0
+```
+
+`ZAM_BASE_URL` stays on the LAN address (the demo calls ZAM from inside the
+office). `ZAM_PAY_BASE` is what the visitor's browser opens, so it must be the
+public https name. Then restart and open port 8090 to the gateway only:
+
+```sh
+sudo systemctl restart zam-demo
+curl -s localhost:8090/api/config            # "zam_reachable":true
+sudo ufw allow from 192.168.8.100 to any port 8090 proto tcp     # if the server uses ufw
+```
+
+If the server uses ufw, remove any broader rule for 8090 (`sudo ufw status numbered`).
+The SSH tunnel of path L keeps working, since it connects from the server itself.
+
+**G3. The gateway (192.168.8.100).** Get the site file from this repository (it is
+`deploy/zamdemo.techween.net.conf`; after a `git pull` on the demo server it is in
+`/opt/zam-demo/deploy/`), put it on the gateway, and enable it:
+
+```sh
+scp 192.168.8.170:/opt/zam-demo/deploy/zamdemo.techween.net.conf /tmp/     # or copy it any way you like
+sudo cp /tmp/zamdemo.techween.net.conf /etc/nginx/sites-available/zamdemo.techween.net
+sudo ln -s /etc/nginx/sites-available/zamdemo.techween.net /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+curl -s -H 'Host: zamdemo.techween.net' localhost/api/config           # the demo's answer, through nginx
+```
+
+The file is plain http on port 80. It proxies the demo, allows at most 10 new
+orders a minute per visitor (status checks and pages are not limited), and has an
+optional password (commented out).
+
+**G4. The certificate.** On the gateway, the same way the other names got theirs:
+
+```sh
+sudo certbot --nginx -d zamdemo.techween.net
+```
+
+Certbot adds the https server and the redirect from http, and installs its renewal
+timer. `sudo certbot certificates` shows the other names' certificates and their
+expiry. This needs the DNS record from G1 to be live, and port 80 on the gateway to
+be reachable from the internet (it already is for the other names).
+
+**G5. Register the name on each POS.** On every store's POS, under Web addresses,
+add `https://zamdemo.techween.net`. If people will also reach the demo through the
+tunnel, keep `http://localhost:8090` registered too.
+
+**G6. Try it from outside the office.** On a phone using mobile data (not the
+office Wi-Fi), or from home:
+
+```
+https://zamdemo.techween.net/api/config      # "zam_reachable":true and the stores true
+https://zamdemo.techween.net/talabat/        # the store; Pay opens the payment window
+```
+
+**From inside the office this name does not work**: the office network refuses
+connections to its own public address (no hairpin), so a computer on the office
+network that opens `https://zamdemo.techween.net` gets nothing. Inside the office,
+use path L (the tunnel and `http://localhost:8090`).
+
+---
+
 ## 7. Register the demo's address on each POS
 
 Back in the merchant portal, on each store's **Checkout Keys** page, under
@@ -283,6 +376,7 @@ Back in the merchant portal, on each store's **Checkout Keys** page, under
 |---|---|
 | Path L (tunnel) | `http://localhost:8090` |
 | Path C (cloud VM) | `https://YOUR.DOMAIN` |
+| Path G (office gateway) | `https://zamdemo.techween.net` |
 
 It takes effect within 30 seconds. Without it the payment window stays blank.
 
