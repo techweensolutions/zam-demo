@@ -175,14 +175,21 @@ function verifySignature(rawBody, header, secret, toleranceSeconds = 300, now = 
 
 // Why a call to ZAM failed, in words a person setting this up can act on.
 // fetch() reports only "fetch failed"; the reason is in its cause.
-function whyUnreachable(e) {
+function whyUnreachable(e, base = BASE, ownPort = process.env.PORT || 8090) {
   const code = (e && e.cause && e.cause.code) || (e && e.name) || '';
-  const host = BASE.replace(/^https?:\/\//, '');
+  const host = base.replace(/^https?:\/\//, '');
   switch (code) {
     case 'ENOTFOUND': case 'EAI_AGAIN':
       return `the name in ZAM_BASE_URL (${host}) does not resolve from this server`;
-    case 'ECONNREFUSED':
-      return `${host} refused the connection (wrong address or port, or the office network blocks it)`;
+    case 'ECONNREFUSED': {
+      // 8090 is this demo's own port; ZAM's POS API, which the demo calls, is on 8082.
+      let port = '';
+      try { port = new URL(base).port; } catch (_) { /* reported elsewhere */ }
+      const own = port && port === String(ownPort)
+        ? `; ${port} is this demo's own port, and ZAM's POS API is on 8082 (use ${base.replace(':' + port, ':8082')})`
+        : '';
+      return `${host} refused the connection (wrong address or port, or the office network blocks it)${own}`;
+    }
     case 'ETIMEDOUT': case 'TimeoutError': case 'ABORT_ERR': case 'AbortError':
       return `${host} did not answer in time`;
     case 'ERR_INVALID_URL':
@@ -382,7 +389,7 @@ function createServer() {
   });
 }
 
-module.exports = { createServer, payPage, price, verifySignature, verified, loadCatalog, readLiteral };
+module.exports = { createServer, whyUnreachable, payPage, price, verifySignature, verified, loadCatalog, readLiteral };
 
 if (require.main === module) {
   if (!BASE) console.warn('ZAM_BASE_URL is not set: the stores will load but cannot take payments.');

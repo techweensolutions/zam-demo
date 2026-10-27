@@ -267,3 +267,35 @@ test('an address that is not ZAM at all is recognised by its answer', async () =
     });
   } finally { other.close(); }
 });
+
+test('an address that points back at the demo itself is recognised by its answer', async () => {
+  // The demo listening on the very port its ZAM address names answers for itself:
+  // a 404 where ZAM gives a 401.
+  const probe = http.createServer();
+  await new Promise((r) => probe.listen(0, '127.0.0.1', r));
+  const port = probe.address().port;
+  await new Promise((r) => probe.close(r));
+  const child = spawn(process.execPath, [require('node:path').join(__dirname, '..', 'server.js')], {
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', ZAM_BASE_URL: `http://127.0.0.1:${port}`, ZAM_KEY_TALABAT: 'zam_sk_live_x' },
+    stdio: 'ignore',
+  });
+  try {
+    for (let i = 0; i < 40; i++) { try { await fetch(`http://127.0.0.1:${port}/health`); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+    const c = await (await fetch(`http://127.0.0.1:${port}/api/config`)).json();
+    assert.strictEqual(c.zam_reachable, false);
+    assert.match(c.zam_error, /not the 401 ZAM gives/);
+  } finally { child.kill(); }
+});
+
+test('a refused connection to the demo\'s own port says ZAM is on 8082', () => {
+  const { whyUnreachable } = require('../server.js');
+  const refused = { cause: { code: 'ECONNREFUSED' } };
+  const msg = whyUnreachable(refused, 'http://192.168.8.160:8090', 8090);
+  assert.match(msg, /192\.168\.8\.160:8090 refused the connection/);
+  assert.match(msg, /8090 is this demo's own port, and ZAM's POS API is on 8082 \(use http:\/\/192\.168\.8\.160:8082\)/);
+  // another refused port gets the general advice and no wrong hint
+  const other = whyUnreachable(refused, 'http://192.168.8.160:9999', 8090);
+  assert.ok(!/own port/.test(other));
+  assert.match(whyUnreachable({ cause: { code: 'ENOTFOUND' } }, 'https://zam-staging.example', 8090), /does not resolve/);
+  assert.match(whyUnreachable({ name: 'TimeoutError' }, 'http://192.168.8.160:8082', 8090), /did not answer in time/);
+});
