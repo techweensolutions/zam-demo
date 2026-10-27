@@ -323,14 +323,38 @@ The SSH tunnel of path L keeps working, since it connects from the server itself
 
 **G3. The gateway (192.168.8.100).** Get the site file from this repository (it is
 `deploy/zamdemo.techween.net.conf`; after a `git pull` on the demo server it is in
-`/opt/zam-demo/deploy/`), put it on the gateway, and enable it:
+`/opt/zam-demo/deploy/`), put it on the gateway, and enable it. Enabling means a
+link in `sites-enabled` that points at the file in `sites-available`; use full paths.
 
 ```sh
+# 1. the file, from the demo server to the gateway
 scp 192.168.8.170:/opt/zam-demo/deploy/zamdemo.techween.net.conf /tmp/     # or copy it any way you like
 sudo cp /tmp/zamdemo.techween.net.conf /etc/nginx/sites-available/zamdemo.techween.net
-sudo ln -s /etc/nginx/sites-available/zamdemo.techween.net /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-curl -s -H 'Host: zamdemo.techween.net' localhost/api/config           # the demo's answer, through nginx
+
+# 2. the link
+sudo ln -s /etc/nginx/sites-available/zamdemo.techween.net /etc/nginx/sites-enabled/zamdemo.techween.net
+ls -l /etc/nginx/sites-enabled/       # the new line ends  -> /etc/nginx/sites-available/zamdemo.techween.net
+                                      # ("File exists" means a link is already there: do not repeat the ln)
+
+# 3. test before applying. A mistake here can take down every other techween.net site
+sudo nginx -t                         # both lines: "syntax is ok" and "test is successful"
+
+# 4. apply: reload, not restart, so live connections are not dropped
+sudo systemctl reload nginx
+systemctl is-active nginx             # active
+
+# 5. nginx now serves the new name on port 80, before any certificate exists
+curl -s -H 'Host: zamdemo.techween.net' http://localhost/api/config    # JSON with "zam_reachable":true
+```
+
+A `502 Bad Gateway`, or nginx's default page, in step 5 means the gateway cannot
+reach `192.168.8.170:8090`: check `curl -s http://192.168.8.170:8090/health` from the
+gateway and the `ufw` rule from G2.
+
+To undo it at any time, remove the link and reload (the file in `sites-available` stays):
+
+```sh
+sudo rm /etc/nginx/sites-enabled/zamdemo.techween.net && sudo nginx -t && sudo systemctl reload nginx
 ```
 
 The file is plain http on port 80. It proxies the demo, allows at most 10 new
