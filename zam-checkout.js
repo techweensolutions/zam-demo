@@ -1,25 +1,29 @@
 /**
- * ZAM Checkout - Drop-in payment widget for online stores
+ * ZAM Checkout - the payment window for an online store
  *
- * Usage:
- *   ZamCheckout.configure({ apiKey: 'your-key', baseURL: 'https://zam.example.com' });
- *   ZamCheckout.open({
- *     amount: '15.500',
- *     orderRef: 'ORDER-123',
- *     onSuccess: (result) => {},
- *     onCancel: () => {},
- *     onError: (err) => {}
+ * The store's server creates the session with a secret key and gives the page
+ * only the address of ZAM's pay page; the page never holds a key. The widget
+ * shows that page and asks the store's own server how the order stands.
+ *
+ * Usage (in the click handler of the Pay button):
+ *   ZamCheckout.prepare();                       // unlocks the confirmation sound
+ *   ...ask your server to create the order...    // it answers with payment_url
+ *   ZamCheckout.openSession({
+ *     paymentURL: session.payment_url,
+ *     getStatus: function (done) { ...ask your server; done(null, { status: "pending" | "approved" | ... }) },
+ *     cancel:    function (done) { ...ask your server to cancel; done() },
+ *     onSuccess: function (result) {},
+ *     onCancel:  function () {},
+ *     onError:   function (err) {}
  *   });
  */
 (function (root) {
   "use strict";
 
   var config = {
-    apiKey: null,
-    baseURL: "",
-    // Deprecated: the currency and timezone now arrive with every session
-    // response (`currency`, `locale`). Set only to label amounts before the
-    // first response, or to override a server that predates the field.
+    // The currency and timezone arrive with the status the store's server
+    // returns (`currency`, `locale`). Set `currency` only to label amounts before
+    // the first answer.
     currency: null,
     pollInterval: 3000,
     // A short chime when the payment is confirmed. Set false to keep the
@@ -127,69 +131,14 @@
     document.head.appendChild(s);
   }
 
-  // ── API helpers ─────────────────────────────────────────────────────
-
-  function apiRequest(method, path, body, cb) {
-    var xhr = new XMLHttpRequest();
-    xhr.open(method, config.baseURL + path, true);
-    xhr.setRequestHeader("Content-Type", "application/json");
-    if (config.apiKey) {
-      xhr.setRequestHeader("Authorization", "Token " + config.apiKey);
-    }
-    xhr.onload = function () {
-      var resp;
-      try {
-        resp = JSON.parse(xhr.responseText);
-      } catch (e) {
-        return cb({ error: "Invalid JSON response" });
-      }
-      if (xhr.status >= 200 && xhr.status < 300 && resp.success) {
-        cb(null, resp.data);
-      } else {
-        cb({
-          status: xhr.status,
-          error: resp.error || resp.message || "Request failed",
-          code: resp.error_code,
-        });
-      }
-    };
-    xhr.onerror = function () {
-      cb({ error: "Network error" });
-    };
-    xhr.send(body ? JSON.stringify(body) : null);
-  }
-
-  function createSession(opts, cb) {
-    var payload = { amount: opts.amount };
-    if (opts.orderRef) payload.order_ref = opts.orderRef;
-    if (opts.callbackURL) payload.callback_url = opts.callbackURL;
-    if (opts.note) payload.note = opts.note;
-    apiRequest("POST", "/api/checkout/sessions", payload, cb);
-  }
-
-  function getSession(sessionId, cb) {
-    apiRequest("GET", "/api/checkout/sessions/" + sessionId, null, cb);
-  }
-
-  function cancelSession(sessionId, cb) {
-    apiRequest(
-      "POST",
-      "/api/checkout/sessions/" + sessionId + "/cancel",
-      null,
-      cb
-    );
-  }
-
   // ── Polling ─────────────────────────────────────────────────────────
 
   function startPolling() {
     stopPolling();
     state.pollTimer = setInterval(function () {
-      if (!state.sessionId) return;
-      // A store that creates its sessions on its own server (openSession)
-      // reads the status there too; the key stays on that server.
-      var read = state.reader || function (cb) { getSession(state.sessionId, cb); };
-      read(function (err, data) {
+      if (!state.sessionId || !state.reader) return;
+      // The status comes from the store's own server, which holds the key.
+      state.reader(function (err, data) {
         if (err) { console.warn("ZamCheckout: could not read the payment status"); return; }
         rememberLocale(data);
         if (data && data.status === "approved") {
@@ -298,10 +247,6 @@
     var cb = state.callbacks.onCancel;
     if (state.canceler) {
       state.canceler(function () {
-        /* fire-and-forget */
-      });
-    } else if (state.sessionId) {
-      cancelSession(state.sessionId, function () {
         /* fire-and-forget */
       });
     }
@@ -472,14 +417,11 @@
     /**
      * Configure the widget (call once on page load).
      * @param {Object} opts
-     * @param {string} opts.apiKey   - Device/checkout API key
-     * @param {string} opts.baseURL  - Base URL of the ZAM POS API (e.g. https://zam.example.com)
-     * @param {string} [opts.currency] - Deprecated. The currency arrives with every session response; set only to label amounts before the first response.
+     * @param {string} [opts.currency] - Label amounts with this before the first status arrives
      * @param {number} [opts.pollInterval=3000] - Status poll interval in ms
+     * @param {boolean} [opts.sound=true] - Play a chime when the payment is confirmed
      */
     configure: function (opts) {
-      if (opts.apiKey) config.apiKey = opts.apiKey;
-      if (opts.baseURL) config.baseURL = opts.baseURL.replace(/\/+$/, "");
       if (opts.currency) config.currency = opts.currency;
       if (opts.pollInterval) config.pollInterval = opts.pollInterval;
       if (typeof opts.sound === "boolean") config.sound = opts.sound;
@@ -488,76 +430,10 @@
     /**
      * Unlock the confirmation sound. Call it first thing in the click handler of
      * your Pay button, before anything asynchronous: browsers let a page start
-     * audio only from inside a tap. open() and openSession() call it too, which
-     * is enough when they run straight from the click.
+     * audio only from inside a tap. openSession() calls it too, which is enough
+     * when it runs straight from the click.
      */
     prepare: prepareSound,
-
-    /**
-     * Open the checkout modal.
-     * @param {Object} opts
-     * @param {string}   opts.amount       - Payment amount (required)
-     * @param {string}   [opts.orderRef]   - Your order reference
-     * @param {string}   [opts.callbackURL]- Server-side webhook URL
-     * @param {string}   [opts.note]       - Payment note
-     * @param {Function} [opts.onSuccess]  - Called with payment result on approval
-     * @param {Function} [opts.onCancel]   - Called when user cancels
-     * @param {Function} [opts.onError]    - Called on API/network errors
-     */
-    open: function (opts) {
-      if (!config.apiKey) {
-        console.error("ZamCheckout: call configure({ apiKey }) first");
-        return;
-      }
-      if (!opts || !opts.amount) {
-        console.error("ZamCheckout: amount is required");
-        return;
-      }
-      // One checkout at a time: a second click on Pay while one is open or
-      // being created must not start another session for the same order.
-      if (state.overlay || state.opening) return;
-      state.opening = true;
-      prepareSound();
-
-      injectStyles();
-
-      state.callbacks = {
-        onSuccess: opts.onSuccess,
-        onCancel: opts.onCancel,
-        onError: opts.onError,
-      };
-
-      createSession(opts, function (err, data) {
-        state.opening = false;
-        if (err) {
-          console.error("ZamCheckout: session creation failed", err);
-          if (state.callbacks.onError) state.callbacks.onError(err);
-          return;
-        }
-
-        state.sessionId = data.session_id;
-        rememberLocale(data);
-
-        var paymentURL = data.payment_url;
-        if (paymentURL && paymentURL.charAt(0) === "/" && config.baseURL) {
-          paymentURL = config.baseURL + paymentURL;
-        }
-        if (!isPayableURL(paymentURL)) {
-          console.error("ZamCheckout: the service returned no payment address");
-          if (state.callbacks.onError) state.callbacks.onError(new Error("No payment address"));
-          return;
-        }
-        state.overlay = buildModal(paymentURL);
-        document.body.appendChild(state.overlay);
-
-        // Trigger entrance animation
-        requestAnimationFrame(function () {
-          state.overlay.classList.add("zam-visible");
-        });
-
-        startPolling();
-      });
-    },
 
     /**
      * Open the checkout modal for a session your own server created.
@@ -586,7 +462,7 @@
         if (opts && opts.onError) opts.onError(new Error("paymentURL and getStatus are required"));
         return;
       }
-      if (state.overlay || state.opening) return;
+      if (state.overlay) return;
       prepareSound();
 
       injectStyles();

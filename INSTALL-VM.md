@@ -46,8 +46,7 @@ reference it asked for. See `zam-demo-DEPLOYMENT.md`.
 For Xcite, Kuwait Travel and Talabat (one merchant can hold all three):
 
 1. **POS Terminals → create**, type **Online**, named after the store. A POS
-   created now uses checkout v2: it takes a secret key and refuses browser-side
-   creation.
+   takes a secret key; checkout has no mode in which a browser creates a payment.
 2. Open the terminal's **Checkout Keys** page.
 3. **Generate new key → Secret key.** Copy it now; it is shown once. It goes into
    the VM's env file in step 4 and nowhere else.

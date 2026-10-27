@@ -32,7 +32,7 @@ and `demo.techween.net` as it was). Run `server.js` somewhere a browser can reac
 
 For each store (any merchant will do for a demo; one merchant can hold all three):
 
-1. **POS Terminals → create** an *Online* terminal named after the store. A POS created now uses checkout v2: it takes a secret key and refuses browser-side creation.
+1. **POS Terminals → create** an *Online* terminal named after the store. It takes a secret key; checkout has no mode in which a browser creates a payment.
 2. Open its **Checkout Keys** page.
 3. **Generate new key → Secret key.** Copy it at once; it is shown once. It goes in `.env`, nowhere else.
 4. **Limit for one checkout session:** set a low one, for example `500`. A demo does not need more, and the limit is what contains a leaked key.

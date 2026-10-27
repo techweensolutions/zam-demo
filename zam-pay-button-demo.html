@@ -224,7 +224,7 @@
         &nbsp;&nbsp;style: <span class="string">'dark'</span>,<br>
         &nbsp;&nbsp;size: <span class="string">'default'</span>,<br>
         &nbsp;&nbsp;onClick: <span class="comment">function</span>() {<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;ZamCheckout.open({ amount: <span class="string">'15.500'</span> });<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;ZamCheckout.openSession({ paymentURL: session.payment_url, getStatus: askMyServer });<br>
         &nbsp;&nbsp;}<br>
         });
       </div>
@@ -276,7 +276,7 @@
       style: 'dark',
       size: 'large',
       onClick: function () {
-        alert('This would trigger ZamCheckout.open({ amount: "15.500" })');
+        alert('Your server would create the payment and this would call ZamCheckout.openSession({ paymentURL, getStatus })');
       }
     });
   </script>
