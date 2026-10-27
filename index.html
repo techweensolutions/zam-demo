@@ -258,16 +258,24 @@
     </footer>
 
     <script>
-        // Which stores can take payments on this server: their secret key is set there.
+        // What this server can do right now: whether it reaches ZAM, and which
+        // stores have a key.
         fetch('/api/config', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (c) {
+            var notes = [];
+            if (!c.zam) {
+                notes.push('The server has no ZAM address (ZAM_BASE_URL is not set).');
+            } else if (c.zam_reachable === false) {
+                notes.push('The server cannot reach ZAM at ' + c.zam_url + ': ' + (c.zam_error || 'no answer') + '.');
+            }
             var off = [];
-            Object.keys(c.stores).forEach(function (k) { if (!c.zam || !c.stores[k]) off.push(k); });
-            if (off.length) {
+            Object.keys(c.stores).forEach(function (k) { if (!c.stores[k]) off.push(k); });
+            if (off.length) notes.push('No key set for: ' + off.join(', ') + '.');
+            notes.forEach(function (text) {
                 var n = document.createElement('p');
                 n.style.cssText = 'text-align:center;color:#b45309;font-size:13px;margin:16px';
-                n.textContent = 'Not connected to ZAM on this server: ' + off.join(', ') + '.';
+                n.textContent = text;
                 document.body.insertBefore(n, document.querySelector('.footer'));
-            }
+            });
         }).catch(function () {});
     </script>
 </body>

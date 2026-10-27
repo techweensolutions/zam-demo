@@ -19,6 +19,8 @@ ask this server how the order stands.
 Because it needs a server, the demo no longer runs as static files (GitHub Pages
 and `demo.techween.net` as it was). Run `server.js` somewhere a browser can reach.
 
+> Adding or replacing a store's key: [INSTALL-VM.md](INSTALL-VM.md#adding-or-replacing-a-stores-key).
+>
 > Installing it on a cloud VM or on the dev server, step by step: [INSTALL-VM.md](INSTALL-VM.md).
 
 ## What you need

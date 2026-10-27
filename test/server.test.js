@@ -18,6 +18,7 @@ function fakeZam() {
     req.on('end', () => {
       state.calls.push({ method: req.method, url: req.url, auth: req.headers.authorization, idem: req.headers['idempotency-key'], body: raw ? JSON.parse(raw) : null });
       const reply = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ success: status < 300, data })); };
+      if (!req.headers.authorization) return reply(401, null);
       let m;
       if (req.method === 'POST' && req.url === '/api/checkout/sessions') {
         const b = JSON.parse(raw);
@@ -205,4 +206,64 @@ test('the pay helper unlocks the confirmation sound inside the tap', () => {
   const prepare = src.indexOf('ZamCheckout.prepare()');
   assert.ok(prepare > 0, 'pay() must call ZamCheckout.prepare()');
   assert.ok(prepare < src.indexOf('json("POST"'), 'and before the first asynchronous step, or the browser will not allow it');
+});
+
+test('the server says whether it can reach ZAM', async () => {
+  const c = await (await fetch(base + '/api/config')).json();
+  assert.strictEqual(c.zam_reachable, true);
+  assert.strictEqual(c.zam_url, zam.url);
+  assert.ok(!('zam_error' in c));
+});
+
+// A server whose ZAM address is wrong must say so, and say why, instead of
+// "could not be reached".
+const { spawn } = require('node:child_process');
+async function withBrokenZam(baseURL, fn) {
+  const port = 8300 + Math.floor(Math.random() * 500);
+  const child = spawn(process.execPath, [require('node:path').join(__dirname, '..', 'server.js')], {
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', ZAM_BASE_URL: baseURL, ZAM_KEY_TALABAT: 'zam_sk_live_x' },
+    stdio: 'ignore',
+  });
+  try {
+    for (let i = 0; i < 40; i++) { try { await fetch(`http://127.0.0.1:${port}/health`); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+    await fn(`http://127.0.0.1:${port}`);
+  } finally { child.kill(); }
+}
+
+test('a ZAM address that refuses connections is named in the config and in the order error', async () => {
+  // A port nothing listens on: bind one, then let it go.
+  const probe = http.createServer();
+  await new Promise((r) => probe.listen(0, '127.0.0.1', r));
+  const closed = probe.address().port;
+  await new Promise((r) => probe.close(r));
+  await withBrokenZam(`http://127.0.0.1:${closed}`, async (b) => {
+    const c = await (await fetch(b + '/api/config')).json();
+    assert.strictEqual(c.zam_reachable, false);
+    assert.match(c.zam_error, /refused the connection/);
+    assert.ok(c.zam_error.includes(`127.0.0.1:${closed}`));
+    const r = await fetch(b + '/api/orders/talabat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ id: 3, qty: 1 }] }) });
+    assert.strictEqual(r.status, 502);
+    const body = await r.json();
+    assert.match(body.error, /ZAM could not be reached: .*refused the connection/);
+  });
+});
+
+test('a ZAM address that does not resolve is named too, as the placeholder in .env.example would', async () => {
+  await withBrokenZam('https://zam-staging.example', async (b) => {
+    const c = await (await fetch(b + '/api/config')).json();
+    assert.strictEqual(c.zam_reachable, false);
+    assert.match(c.zam_error, /does not resolve|did not answer|zam-staging\.example/);
+  });
+});
+
+test('an address that is not ZAM at all is recognised by its answer', async () => {
+  const other = http.createServer((q, r) => { r.writeHead(200); r.end('hello'); });
+  await new Promise((r) => other.listen(0, '127.0.0.1', r));
+  try {
+    await withBrokenZam(`http://127.0.0.1:${other.address().port}`, async (b) => {
+      const c = await (await fetch(b + '/api/config')).json();
+      assert.strictEqual(c.zam_reachable, false);
+      assert.match(c.zam_error, /answered 200, not the 401/);
+    });
+  } finally { other.close(); }
 });

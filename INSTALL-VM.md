@@ -174,7 +174,8 @@ curl -s localhost:8090/api/config                  # {"zam":true,"stores":{"xcit
 ```
 
 A store shows `false` until its key is in the env file (then
-`sudo systemctl restart zam-demo`).
+`sudo systemctl restart zam-demo`). The steps for adding or replacing a key are in
+[Adding or replacing a store's key](#adding-or-replacing-a-stores-key) below.
 
 ---
 
@@ -191,6 +192,18 @@ Path C:
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' https://zam.techween.net/api/checkout/sessions/x
 ```
+
+The demo server runs the same check itself and reports it, so once it is up you
+can also ask it:
+
+```sh
+curl -s localhost:8090/api/config
+# {"zam":true,"zam_url":"http://192.168.8.160:8082","zam_reachable":true,"stores":{…}}
+# or: "zam_reachable":false,"zam_error":"192.168.8.160:80 refused the connection (wrong address or port, …)"
+```
+
+The landing page shows the same message in orange, and the service log prints
+`ZAM at … is reachable` or `is NOT reachable: …` when it starts.
 
 `401` is the right answer on both: ZAM is reachable and wants a key. Anything else
 (`000`, a timeout, a certificate error) means the VM cannot reach ZAM, and no
@@ -289,6 +302,72 @@ sudo journalctl -u zam-demo -f
 
 ---
 
+## Adding or replacing a store's key
+
+Each store has its own key, from its own POS. They go into `/etc/zam-demo.env`:
+
+| Store | Variable | Key comes from the POS named |
+|---|---|---|
+| Xcite Electronics | `ZAM_KEY_XCITE` | Xcite |
+| Kuwait Travel | `ZAM_KEY_TRAVEL` | Kuwait Travel |
+| Talabat | `ZAM_KEY_TALABAT` | Talabat |
+
+A store whose key is empty still loads, but cannot take payments.
+
+**1. Get the key (merchant portal, once per store).**
+Open the store's online POS, then its **Checkout Keys** page, and choose
+**Generate new key → Secret key**. Copy the key at once (`zam_sk_live_…`): it is
+shown once. While you are there, check the page's two other settings: the
+**session limit** (for example `500`) and the demo's address under **Web
+addresses** (step 7).
+
+**2. Put it in the env file, on the VM.**
+The commands below ask for the key without showing it and without leaving it in
+your shell history. Run one block per store, changing the name in the first line
+(`XCITE`, `TRAVEL` or `TALABAT`):
+
+```sh
+STORE=XCITE
+read -rsp "Paste the $STORE key, then Enter: " K; echo
+sudo sed -i "s|^ZAM_KEY_$STORE=.*|ZAM_KEY_$STORE=$K|" /etc/zam-demo.env; unset K
+```
+
+Or edit the file by hand: `sudo nano /etc/zam-demo.env`, and set the line to
+`ZAM_KEY_XCITE=zam_sk_live_…` with nothing else on it: no quotes, no spaces.
+The same commands replace a key that is already there.
+
+**3. Restart and check.** The service reads the file only when it starts.
+
+```sh
+sudo systemctl restart zam-demo
+systemctl is-active zam-demo                                   # active
+curl -s localhost:8090/api/config                              # every store you set shows true
+grep -E '^ZAM_KEY_[A-Z]+=.' /etc/zam-demo.env | cut -d= -f1    # names of the keys that are set; never shows the keys
+sudo journalctl -u zam-demo -n 8 --no-pager                    # a "ZAM_KEY_… is not set" line for each store still without one
+```
+
+**4. Prove the key works.** Create a small order; ZAM answers with a payment
+address if it accepts the key (the amount is 2.500 KWD):
+
+```sh
+curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"items":[{"id":3,"qty":1}]}' localhost:8090/api/orders/talabat
+```
+
+Use `/api/orders/xcite` with `{"items":[{"id":10,"qty":1}]}` or
+`/api/orders/travel` with `{"tripId":1,"cls":1,"pax":1}` for the other two. An
+`Authentication failed` style error means the key was copied wrongly or has been
+revoked; create another one.
+
+**Replacing a key you no longer want.** Set the new key as above first, check it,
+then revoke the old one on the POS's Checkout Keys page. A revoked key stops
+working within a second.
+
+**If a key leaks** (pasted in a chat, committed, shown on a screen): revoke it on
+the POS's Checkout Keys page straight away, then create and install a new one.
+
+---
+
 ## When something goes wrong
 
 | You see | It means | Do |
@@ -296,7 +375,7 @@ sudo journalctl -u zam-demo -f
 | "The store's server could not be reached" | The page was not served by `server.js` (a static host, or the wrong address), or the server is down | Open the demo at the address from step 6; `systemctl status zam-demo` |
 | "The demo server had a problem" | `server.js` hit an error | `sudo journalctl -u zam-demo -n 40` |
 | "This store is not connected to ZAM on this server" | That store's key is missing | Add `ZAM_KEY_<STORE>` to `/etc/zam-demo.env`, restart |
-| "ZAM could not be reached" | The VM cannot reach `ZAM_BASE_URL` | Step 5 |
+| "ZAM could not be reached: …" | The demo server cannot reach `ZAM_BASE_URL`; the message says why | `curl -s localhost:8090/api/config` shows `zam_url` and `zam_error`. The usual causes: the placeholder `https://zam-staging.example` was never replaced; the port is missing (it is `:8082`); the public name `zam.techween.net` is used from inside the office, which refuses it. Fix `ZAM_BASE_URL`, then `sudo systemctl restart zam-demo` |
 | An error from ZAM, such as the amount being over the POS's limit | ZAM refused the order | Raise the session limit on that POS, or order less |
 | The payment window is blank | The address is not registered on that POS, or the browser cannot reach ZAM's pay page | Step 7 (it must match exactly, scheme and port included); open the pay page's address in a tab. A cloud demo's pay page (`https://zam.techween.net`) is refused from inside the office |
 | The wallet says "Error loading payment request" | The order carries no note, which the wallet requires | Update the demo (`git pull`): it sends a note. ZAM v1.5.0-rc3 or later fills one in too |

@@ -173,6 +173,46 @@ function verifySignature(rawBody, header, secret, toleranceSeconds = 300, now = 
     crypto.timingSafeEqual(Buffer.from(s), Buffer.from(expected)));
 }
 
+// Why a call to ZAM failed, in words a person setting this up can act on.
+// fetch() reports only "fetch failed"; the reason is in its cause.
+function whyUnreachable(e) {
+  const code = (e && e.cause && e.cause.code) || (e && e.name) || '';
+  const host = BASE.replace(/^https?:\/\//, '');
+  switch (code) {
+    case 'ENOTFOUND': case 'EAI_AGAIN':
+      return `the name in ZAM_BASE_URL (${host}) does not resolve from this server`;
+    case 'ECONNREFUSED':
+      return `${host} refused the connection (wrong address or port, or the office network blocks it)`;
+    case 'ETIMEDOUT': case 'TimeoutError': case 'ABORT_ERR': case 'AbortError':
+      return `${host} did not answer in time`;
+    case 'ERR_INVALID_URL':
+      return 'ZAM_BASE_URL is not a valid address';
+    default:
+      if (/certificate|CERT_|SSL/i.test(code + ' ' + (e && e.cause && e.cause.message || ''))) return `${host} has a certificate this server does not trust`;
+      return `${(e && e.cause && e.cause.message) || (e && e.message) || 'unknown error'}`;
+  }
+}
+
+// Can this server reach ZAM at all? An unauthenticated read of a session answers
+// 401 when ZAM is there and wants a key. Cached briefly so a page that polls
+// /api/config does not turn into traffic against ZAM.
+let probeCache = { at: 0, value: null };
+async function probeZam() {
+  if (!BASE) return { reachable: false, error: 'ZAM_BASE_URL is not set' };
+  if (Date.now() - probeCache.at < 10000 && probeCache.value) return probeCache.value;
+  let value;
+  try {
+    const res = await fetch(BASE + '/api/checkout/sessions/probe', { signal: AbortSignal.timeout(4000) });
+    value = res.status === 401
+      ? { reachable: true }
+      : { reachable: false, error: `${BASE} answered ${res.status}, not the 401 ZAM gives to a request without a key (is this ZAM's address?)` };
+  } catch (e) {
+    value = { reachable: false, error: whyUnreachable(e) };
+  }
+  probeCache = { at: Date.now(), value };
+  return value;
+}
+
 // ── HTTP ───────────────────────────────────────────────────────────────
 function send(res, status, obj) {
   const body = JSON.stringify(obj);
@@ -228,8 +268,12 @@ async function handle(req, res) {
 
   // Which stores can take payments here: the key is configured.
   if (req.method === 'GET' && p === '/api/config') {
+    const probe = await probeZam();
     return send(res, 200, {
       zam: Boolean(BASE),
+      zam_url: BASE,
+      zam_reachable: probe.reachable,
+      ...(probe.error ? { zam_error: probe.error } : {}),
       stores: Object.fromEntries(Object.keys(STORES).map((s) => [s, Boolean(keys[s])])),
     });
   }
@@ -257,8 +301,9 @@ async function handle(req, res) {
         idempotencyKey: order.ref + '-1',
       });
     } catch (e) {
-      console.error('create session failed:', e.message);
-      return send(res, 502, { error: 'ZAM could not be reached.' });
+      const why = whyUnreachable(e);
+      console.error(`create session failed (${BASE}): ${why}`);
+      return send(res, 502, { error: `ZAM could not be reached: ${why}.` });
     }
     if (r.status !== 201 && r.status !== 200) {
       console.error('create session refused:', r.status, JSON.stringify(r.json && (r.json.error || r.json.message)));
@@ -349,6 +394,9 @@ if (require.main === module) {
     console.log(`ZAM demo stores on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}  (ZAM: ${BASE || 'not set'})`);
     // ZAM's pay page is framed by these pages, and ZAM lets only the addresses
     // registered for the POS do that.
+    probeZam().then((z) => console.log(z.reachable
+      ? `ZAM at ${BASE} is reachable.`
+      : `ZAM at ${BASE || '(not set)'} is NOT reachable: ${z.error}. No payment will work until this is fixed (ZAM_BASE_URL in the env file).`));
     console.log(`Each store's POS must list this site's address as a web address (e.g. http://localhost:${port}), or its payment window stays blank.`);
   });
 }
