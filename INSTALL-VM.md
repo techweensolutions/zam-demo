@@ -1,19 +1,26 @@
 # Install the ZAM demo stores on a VM
 
-Two ways to run the three demo stores (Xcite, Kuwait Travel, Talabat) on a Linux
-machine of your own:
+Run the three demo stores (Xcite, Kuwait Travel, Talabat) on a Linux VM of your
+own. The steps are the same everywhere except two choices, which depend on **where
+the browser is when someone pays**. Decide that first.
 
-- **A. A cloud VM** with a domain name and a real certificate.
-- **B. The dev server at 192.168.8.100** on the office network.
+| Where is the browser? | Demo VM | `ZAM_BASE_URL` | How the browser reaches the demo |
+|---|---|---|---|
+| **Inside the office network** (192.168.8.x) | a VM on that network: the dev server 192.168.8.100, or a local VM | `http://192.168.8.160:8082` and the same as `ZAM_PAY_BASE` | an SSH tunnel, then `http://localhost:8090` (**path L**, step 6L) |
+| **Outside the office** (a laptop at home, a phone on mobile data) | a cloud VM with a domain name | `https://zam.techween.net` | nginx and a Let's Encrypt certificate (**path C**, step 6C) |
 
-Both use the same program (`server.js`, Node, no dependencies) and the same
-steps 1 to 5. They differ only in step 6, how the browser reaches the demo over
-https.
-
-> **Why https matters.** The demo shows ZAM's pay page inside the store page,
-> and ZAM lets only web addresses registered for the store's POS do that. The
-> portal accepts only `https://…` addresses, plus `http://localhost` for
-> development. So the address you open the demo at must be one of those.
+> **Two limits to know before you start.**
+>
+> 1. **Inside the office, the public name `zam.techween.net` does not work.** It
+>    points at the office's own public address, and the office network refuses
+>    to loop back to it (checked 2026-10-26: connection refused). So an
+>    office browser cannot show ZAM's pay page from a cloud demo, and a demo on
+>    the office network must use staging's LAN address.
+> 2. **The portal accepts only `https://…` web addresses, plus `http://localhost`.**
+>    The pay page appears inside the store page, and ZAM lets only registered
+>    addresses frame it. On the office network that rules out an `https://`
+>    address for the demo (a browser will not show a plain-http pay page inside an
+>    https page), which is why path L uses the tunnel and `http://localhost:8090`.
 
 How it works, in short: the pages never hold a key. `server.js` holds one secret
 key per store, prices each order itself, creates the payment at ZAM, and marks an
@@ -27,9 +34,9 @@ reference it asked for. See `zam-demo-DEPLOYMENT.md`.
 | | |
 |---|---|
 | A Linux VM | Ubuntu 24.04 LTS or newer, 1 vCPU, 1 GB RAM, 5 GB disk. SSH access with sudo. |
-| ZAM's address | The ZAM Service the stores pay through. For staging, `https://zam.techween.net`. The VM must be able to reach it (step 5 checks). |
+| ZAM's address | The ZAM Service the stores pay through: path L `http://192.168.8.160:8082`, path C `https://zam.techween.net`. The VM must be able to reach it (step 5 checks). |
 | Three POS secret keys | One per store. Create them in the merchant portal (step 1). |
-| A domain name (option A only) | For example `demo.example.com`, with an `A` record pointing at the VM's public IP. |
+| A domain name (path C only) | For example `demo.example.com`, with an `A` record pointing at the VM's public IP. |
 
 ---
 
@@ -56,20 +63,15 @@ sudo apt-get update
 sudo apt-get install -y git curl ca-certificates
 ```
 
-Node 20 or newer is needed. Ubuntu 26.04's own package is Node 22:
+Node 18.19 or newer is needed, and nothing else: the demo has no dependencies.
+Ubuntu's own package is enough (24.04 has 18.19.1, 26.04 has 22):
 
 ```sh
 sudo apt-get install -y nodejs
-node --version          # v20 or newer
+node --version          # v18.19 or newer
 ```
 
-On Ubuntu 24.04 the package is too old. Use NodeSource:
-
-```sh
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
-node --version
-```
+The test suite and the server were run on exactly 18.19.1, and on 22 and 26.
 
 ---
 
@@ -95,7 +97,22 @@ sudo chown root:zamdemo /etc/zam-demo.env && sudo chmod 640 /etc/zam-demo.env
 sudo nano /etc/zam-demo.env
 ```
 
-Set these (the file lists the rest as comments):
+Set these (the file lists the rest as comments).
+
+Path L, the office network:
+
+```ini
+ZAM_BASE_URL=http://192.168.8.160:8082
+ZAM_PAY_BASE=http://192.168.8.160:8082
+ZAM_KEY_XCITE=zam_sk_live_…
+ZAM_KEY_TRAVEL=zam_sk_live_…
+ZAM_KEY_TALABAT=zam_sk_live_…
+PORT=8090
+HOST=127.0.0.1
+```
+
+Path C, a cloud VM (leave `ZAM_PAY_BASE` out: ZAM's pay-page address is then
+resolved against the https address):
 
 ```ini
 ZAM_BASE_URL=https://zam.techween.net
@@ -106,11 +123,11 @@ PORT=8090
 HOST=127.0.0.1
 ```
 
-`HOST=127.0.0.1` makes the demo reachable only through the web server you set up
-in step 6. Do **not** set `ZAM_PAY_BASE` when `ZAM_BASE_URL` is the public https
-address: ZAM's pay-page address is then resolved against it.
+`HOST=127.0.0.1` makes the demo reachable only through the tunnel or web server
+you set up in step 6.
 
-The service:
+**4a. Create the service file.** Run this whole block at once, from `sudo tee` down
+to the line that says `EOF` on its own:
 
 ```sh
 sudo tee /etc/systemd/system/zam-demo.service >/dev/null <<'EOF'
@@ -134,6 +151,22 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 EOF
+```
+
+Check that it exists before going on:
+
+```sh
+ls -l /etc/systemd/system/zam-demo.service      # the file is listed
+systemctl cat zam-demo | head -3                # shows [Unit] / Description=ZAM demo stores
+```
+
+If your terminal mangles the pasted block, create the file in an editor instead:
+`sudo nano /etc/systemd/system/zam-demo.service`, paste the lines between the two
+`EOF` markers (not the markers), save, and run the checks above.
+
+**4b. Start it.**
+
+```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now zam-demo
 systemctl is-active zam-demo                       # active
@@ -147,19 +180,27 @@ A store shows `false` until its key is in the env file (then
 
 ## 5. Check that the VM can reach ZAM
 
+Path L:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' http://192.168.8.160:8082/api/checkout/sessions/x
+```
+
+Path C:
+
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' https://zam.techween.net/api/checkout/sessions/x
 ```
 
-`401` is the right answer: ZAM is reachable and wants a key. Anything else
-(`000`, a timeout, a certificate error) means the VM cannot reach ZAM yet, and
-no payment will work until it can. A cloud VM can reach staging only because
-`zam.techween.net` is a public name; a private address like `192.168.8.160` is
-not reachable from the cloud.
+`401` is the right answer on both: ZAM is reachable and wants a key. Anything else
+(`000`, a timeout, a certificate error) means the VM cannot reach ZAM, and no
+payment will work until it can. For path C that usually means the office router is
+not forwarding port 443 to the staging server; ask whoever manages the network.
+(A cloud VM cannot use the private address `192.168.8.160` at all.)
 
 ---
 
-## 6A. Cloud VM: nginx and a Let's Encrypt certificate
+## 6C. Path C, a cloud VM: nginx and a Let's Encrypt certificate
 
 Open ports 22, 80 and 443 in the provider's firewall, and make sure the domain's
 `A` record points at the VM. Then:
@@ -197,13 +238,10 @@ to deliver to private addresses.
 
 ---
 
-## 6B. The dev server at 192.168.8.100
+## 6L. Path L, the office network: an SSH tunnel
 
-There is no public name here, so there is no public certificate. Pick one.
-
-### B1. An SSH tunnel: simplest, one person at a time
-
-Nothing to install on the server beyond steps 1 to 5. On your Mac:
+For the dev server at 192.168.8.100, or any VM on the office network. Nothing to
+install beyond steps 1 to 5. On your Mac (or any computer on the office network):
 
 ```sh
 ssh -L 8090:localhost:8090 <user>@192.168.8.100
@@ -211,50 +249,15 @@ ssh -L 8090:localhost:8090 <user>@192.168.8.100
 
 Leave it open and use **`http://localhost:8090`** in the browser. `http://localhost`
 is the one plain-http address the portal accepts, so register
-**`http://localhost:8090`** in step 7.
+**`http://localhost:8090`** in step 7. Keep `HOST=127.0.0.1` in the env file.
 
-With the tunnel, keep `HOST=127.0.0.1` in the env file.
+The tunnel serves one computer at a time. To let several people use it, give each
+their own tunnel. A shared `https://` address is not possible on the office
+network until the office can reach staging over https (see the limits at the top).
 
-### B2. A self-signed certificate: anyone on the office network
-
-Gives `https://192.168.8.100` to every browser on the network, after each person
-accepts the certificate warning once.
-
-```sh
-sudo apt-get install -y nginx openssl
-sudo mkdir -p /etc/ssl/zam-demo
-sudo openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
-  -keyout /etc/ssl/zam-demo/key.pem -out /etc/ssl/zam-demo/cert.pem \
-  -subj "/CN=192.168.8.100" -addext "subjectAltName=IP:192.168.8.100"
-sudo chgrp www-data /etc/ssl/zam-demo/key.pem && sudo chmod 640 /etc/ssl/zam-demo/key.pem
-
-sudo tee /etc/nginx/sites-available/zam-demo >/dev/null <<'EOF'
-server {
-    listen 443 ssl;
-    server_name 192.168.8.100;
-    ssl_certificate     /etc/ssl/zam-demo/cert.pem;
-    ssl_certificate_key /etc/ssl/zam-demo/key.pem;
-    client_max_body_size 16k;
-    location / {
-        proxy_pass http://127.0.0.1:8090;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-server { listen 80; server_name 192.168.8.100; return 301 https://$host$request_uri; }
-EOF
-sudo ln -sf /etc/nginx/sites-available/zam-demo /etc/nginx/sites-enabled/zam-demo
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-Open `https://192.168.8.100/`, accept the warning, and register
-**`https://192.168.8.100`** in step 7. The pay page inside it comes from
-`https://zam.techween.net`, which has a real certificate, so only the demo page
-itself shows the warning. (If you would rather avoid the warning, use B1.)
-
-If the server cannot resolve or reach `zam.techween.net`, nothing will work; run
-the check in step 5 from the server.
+If the browser later shows a blank payment window with a "refused to connect"
+message, the computer cannot reach `http://192.168.8.160:8082`; open that address
+in a tab to check.
 
 ---
 
@@ -265,9 +268,8 @@ Back in the merchant portal, on each store's **Checkout Keys** page, under
 
 | Setup | Register |
 |---|---|
-| Cloud VM | `https://YOUR.DOMAIN` |
-| Dev server, tunnel (B1) | `http://localhost:8090` |
-| Dev server, self-signed (B2) | `https://192.168.8.100` |
+| Path L (tunnel) | `http://localhost:8090` |
+| Path C (cloud VM) | `https://YOUR.DOMAIN` |
 
 It takes effect within 30 seconds. Without it the payment window stays blank.
 
@@ -296,7 +298,7 @@ sudo journalctl -u zam-demo -f
 | "This store is not connected to ZAM on this server" | That store's key is missing | Add `ZAM_KEY_<STORE>` to `/etc/zam-demo.env`, restart |
 | "ZAM could not be reached" | The VM cannot reach `ZAM_BASE_URL` | Step 5 |
 | An error from ZAM, such as the amount being over the POS's limit | ZAM refused the order | Raise the session limit on that POS, or order less |
-| The payment window is blank | The address is not registered on that POS | Step 7; check it matches exactly, scheme and port included |
+| The payment window is blank | The address is not registered on that POS, or the browser cannot reach ZAM's pay page | Step 7 (it must match exactly, scheme and port included); open the pay page's address in a tab. A cloud demo's pay page (`https://zam.techween.net`) is refused from inside the office |
 | The wallet says "Error loading payment request" | The order carries no note, which the wallet requires | Update the demo (`git pull`): it sends a note. ZAM v1.5.0-rc3 or later fills one in too |
 | No chime | The browser blocked audio, or the sound output is Bluetooth | Open the browser console; a warning says so |
 | QR works, ultrasound is not heard | Bluetooth or a speaker that cannot play above 18 kHz | Use the computer's own speakers, near the phone |
